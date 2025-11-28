@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { License, FeatureSet, ModuleDefinition } from '../types';
-import { ShieldCheck, ShieldAlert, Check, Globe } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Check, Globe, Phone } from 'lucide-react';
 import { ICON_REGISTRY } from '../config';
 
 interface LicenseCardProps {
@@ -50,7 +50,13 @@ export const LicenseCard: React.FC<LicenseCardProps> = ({ license, onUpdateFeatu
                {license.domain}
              </a>
           </div>
-          <p className="text-xs text-gray-400 mt-1">{license.contactPerson} • {license.email}</p>
+          <div className="text-xs text-gray-400 mt-2 space-y-0.5">
+             <p>{license.contactPerson}</p>
+             <p>{license.email}</p>
+             {license.phoneNumber && (
+                <p className="flex items-center gap-1"><Phone size={10} /> {license.phoneNumber}</p>
+             )}
+          </div>
         </div>
         <div className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1
           ${license.status === 'active' && !isExpired ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>

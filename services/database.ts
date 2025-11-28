@@ -57,6 +57,19 @@ const ensureTablesExist = () => {
             );
         `);
         
+        // MIGRATION: Add phoneNumber column if it doesn't exist
+        try {
+            db.run("ALTER TABLE licenses ADD COLUMN phoneNumber TEXT");
+        } catch (e) {
+            // Column likely exists or other error we can ignore for now in this context
+        }
+        
+        try {
+             db.run("ALTER TABLE requests ADD COLUMN phoneNumber TEXT");
+        } catch (e) {
+             // Column likely exists
+        }
+
         // Check if modules table is empty, if so, seed it
         const res = db.exec("SELECT count(*) as count FROM modules");
         if (res.length > 0 && res[0].values[0][0] === 0) {
@@ -88,7 +101,8 @@ const seedDatabase = () => {
       validUntil TEXT,
       status TEXT,
       features TEXT,
-      createdAt TEXT
+      createdAt TEXT,
+      phoneNumber TEXT
     );
   `);
 
@@ -100,7 +114,8 @@ const seedDatabase = () => {
       email TEXT,
       requestedDomain TEXT,
       requestDate TEXT,
-      note TEXT
+      note TEXT,
+      phoneNumber TEXT
     );
   `);
 
@@ -117,12 +132,12 @@ const seedDatabase = () => {
     );
   `);
 
-  ensureTablesExist(); // Creates modules and settings tables
+  ensureTablesExist(); // Creates modules, settings tables, and migrations
 
   // Insert Seed Data
   const initialFeatures = JSON.stringify({ ...DEFAULT_FEATURES, respiratory: true, vehicles: true, reports: true });
   db.run(`
-    INSERT INTO licenses VALUES (
+    INSERT INTO licenses (id, organization, contactPerson, email, domain, key, validUntil, status, features, createdAt, phoneNumber) VALUES (
       'lic_1', 
       'Berufsfeuerwehr Großstadt', 
       'Leitstelle', 
@@ -132,12 +147,13 @@ const seedDatabase = () => {
       '2025-12-31', 
       'active', 
       '${initialFeatures}', 
-      '2024-01-15'
+      '2024-01-15',
+      '+49 30 112233'
     );
   `);
 
   db.run(`
-    INSERT INTO requests VALUES (
+    INSERT INTO requests (id, organization, contactPerson, email, requestedDomain, requestDate, note) VALUES (
       'req_1',
       'Freiwillige Feuerwehr Musterstadt',
       'Hans Müller',
@@ -249,6 +265,7 @@ export const getLicenses = async (): Promise<License[]> => {
       organization: row[columns.indexOf('organization')],
       contactPerson: row[columns.indexOf('contactPerson')],
       email: row[columns.indexOf('email')],
+      phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
       domain: row[columns.indexOf('domain')],
       key: row[columns.indexOf('key')],
       validUntil: row[columns.indexOf('validUntil')],
@@ -261,7 +278,9 @@ export const getLicenses = async (): Promise<License[]> => {
 
 export const createLicense = async (license: License) => {
   if (!db) await initDatabase();
-  db.run(`INSERT INTO licenses VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+  
+  // Ensure we cover the phoneNumber column
+  db.run(`INSERT INTO licenses (id, organization, contactPerson, email, domain, key, validUntil, status, features, createdAt, phoneNumber) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
     license.id,
     license.organization,
     license.contactPerson,
@@ -271,7 +290,8 @@ export const createLicense = async (license: License) => {
     license.validUntil,
     license.status,
     JSON.stringify(license.features),
-    license.createdAt
+    license.createdAt,
+    license.phoneNumber || null
   ]);
   saveDatabase();
 };
@@ -300,6 +320,7 @@ export const getRequests = async (): Promise<LicenseRequest[]> => {
     organization: row[columns.indexOf('organization')],
     contactPerson: row[columns.indexOf('contactPerson')],
     email: row[columns.indexOf('email')],
+    phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
     requestedDomain: row[columns.indexOf('requestedDomain')],
     requestDate: row[columns.indexOf('requestDate')],
     note: row[columns.indexOf('note')]
@@ -359,6 +380,7 @@ export const findLicenseByKey = async (key: string): Promise<License | null> => 
     organization: row[columns.indexOf('organization')],
     contactPerson: row[columns.indexOf('contactPerson')],
     email: row[columns.indexOf('email')],
+    phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
     domain: row[columns.indexOf('domain')],
     key: row[columns.indexOf('key')],
     validUntil: row[columns.indexOf('validUntil')],
@@ -382,6 +404,7 @@ export const findLicenseByDomain = async (domain: string): Promise<License | nul
     organization: row[columns.indexOf('organization')],
     contactPerson: row[columns.indexOf('contactPerson')],
     email: row[columns.indexOf('email')],
+    phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
     domain: row[columns.indexOf('domain')],
     key: row[columns.indexOf('key')],
     validUntil: row[columns.indexOf('validUntil')],

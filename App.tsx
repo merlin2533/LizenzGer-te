@@ -176,12 +176,19 @@ export default function App() {
     return newLog;
   };
 
-  const handleApprove = async (request: LicenseRequest, features: FeatureSet, validUntil: string, emailContent: string) => {
+  const handleApprove = async (
+    request: LicenseRequest, 
+    updatedDetails: { organization: string, contactPerson: string, email: string, phoneNumber: string },
+    features: FeatureSet, 
+    validUntil: string, 
+    emailContent: string
+  ) => {
     const newLicense: License = {
       id: `lic_${Date.now()}`,
-      organization: request.organization,
-      contactPerson: request.contactPerson,
-      email: request.email,
+      organization: updatedDetails.organization,
+      contactPerson: updatedDetails.contactPerson,
+      email: updatedDetails.email,
+      phoneNumber: updatedDetails.phoneNumber,
       domain: request.requestedDomain,
       key: `FFW-${Math.random().toString(36).substr(2, 4).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
       validUntil,

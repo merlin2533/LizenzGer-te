@@ -2,12 +2,18 @@
 import React, { useState, useEffect } from 'react';
 import { LicenseRequest, FeatureSet, DEFAULT_FEATURES, ModuleDefinition } from '../types';
 import { generateWelcomeEmail, analyzeRequest } from '../services/geminiService';
-import { Loader2, Wand2, Mail } from 'lucide-react';
+import { Loader2, Wand2, Mail, Building2, User, Phone, Globe, MessageSquare } from 'lucide-react';
 
 interface RequestModalProps {
   request: LicenseRequest;
   onClose: () => void;
-  onApprove: (request: LicenseRequest, features: FeatureSet, validUntil: string, emailContent: string) => void;
+  onApprove: (
+    request: LicenseRequest, 
+    updatedDetails: { organization: string, contactPerson: string, email: string, phoneNumber: string },
+    features: FeatureSet, 
+    validUntil: string, 
+    emailContent: string
+  ) => void;
   availableModules: ModuleDefinition[];
 }
 
@@ -16,6 +22,13 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
   const [validUntil, setValidUntil] = useState<string>(
     new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
   );
+  
+  // Editable Fields State
+  const [org, setOrg] = useState(request.organization);
+  const [contact, setContact] = useState(request.contactPerson);
+  const [email, setEmail] = useState(request.email);
+  const [phone, setPhone] = useState(request.phoneNumber || '');
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [emailContent, setEmailContent] = useState('');
   const [aiAnalysis, setAiAnalysis] = useState('');
@@ -37,20 +50,26 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
     const dummyKey = `FFW-${Math.random().toString(36).substr(2, 5).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}-${new Date().getFullYear()}`;
     
     // Generate Email via Gemini
-    const email = await generateWelcomeEmail(
-      request.organization,
-      request.contactPerson,
+    const emailText = await generateWelcomeEmail(
+      org,
+      contact,
       dummyKey,
       features,
       validUntil
     );
 
-    setEmailContent(email);
+    setEmailContent(emailText);
     setIsGenerating(false);
   };
 
   const handleConfirm = () => {
-    onApprove(request, features, validUntil, emailContent);
+    onApprove(
+        request, 
+        { organization: org, contactPerson: contact, email, phoneNumber: phone },
+        features, 
+        validUntil, 
+        emailContent
+    );
   };
 
   return (
@@ -58,40 +77,87 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-100">
           <h2 className="text-xl font-bold text-gray-900">Anfrage bearbeiten</h2>
-          <p className="text-gray-500 text-sm mt-1">Lizenz für {request.organization} erstellen</p>
+          <p className="text-gray-500 text-sm mt-1">Lizenzdetails vervollständigen und genehmigen</p>
         </div>
 
         <div className="p-6 space-y-6">
           
-          {/* Info Section */}
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="block text-gray-400 text-xs uppercase font-bold">Kontakt</span>
-              <p className="font-medium text-gray-900">{request.contactPerson}</p>
-              <p className="text-gray-600">{request.email}</p>
-            </div>
-            <div>
-              <span className="block text-gray-400 text-xs uppercase font-bold">Domain (Source)</span>
-              <p className="font-mono bg-gray-100 px-2 py-1 rounded inline-block mt-1 text-gray-800">{request.requestedDomain}</p>
-            </div>
+          {/* Editable Contact Section */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+             <div className="space-y-3">
+                <div>
+                   <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                      <Building2 size={12} /> Organisation
+                   </label>
+                   <input 
+                      type="text" 
+                      value={org}
+                      onChange={(e) => setOrg(e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
+                   />
+                </div>
+                <div>
+                   <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                      <User size={12} /> Ansprechpartner
+                   </label>
+                   <input 
+                      type="text" 
+                      value={contact}
+                      onChange={(e) => setContact(e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
+                   />
+                </div>
+             </div>
+             <div className="space-y-3">
+                <div>
+                   <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                      <Mail size={12} /> Email
+                   </label>
+                   <input 
+                      type="email" 
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
+                   />
+                </div>
+                <div>
+                   <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                      <Phone size={12} /> Telefon / Handy
+                   </label>
+                   <input 
+                      type="text" 
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+49 ..."
+                      className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
+                   />
+                </div>
+             </div>
+          </div>
+
+          <div>
+             <span className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                <Globe size={12} /> Angefragte Domain (Origin)
+             </span>
+             <p className="font-mono bg-gray-100 px-3 py-2 rounded text-sm text-gray-800 border border-gray-200">{request.requestedDomain}</p>
           </div>
 
           {/* AI Analysis */}
           {request.note && (
             <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-2">
-                <Wand2 className="w-4 h-4 text-blue-600" />
-                <span className="text-xs font-bold text-blue-700 uppercase">AI Analyse der Notiz</span>
+                <MessageSquare className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-bold text-blue-700 uppercase">Notiz & KI Analyse</span>
               </div>
-              <p className="text-sm text-gray-600 italic">"{request.note}"</p>
-              <div className="mt-3 text-sm text-blue-800 font-medium">
+              <p className="text-sm text-gray-600 italic mb-2">"{request.note}"</p>
+              <div className="text-sm text-blue-800 font-medium pl-2 border-l-2 border-blue-200">
                 {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : aiAnalysis}
               </div>
             </div>
           )}
 
           {/* Feature Configuration */}
-          <div>
+          <div className="border-t border-gray-100 pt-4">
             <h3 className="text-sm font-bold text-gray-900 mb-3">Module freischalten</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {availableModules.map((module) => (
@@ -126,13 +192,13 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
             <button
               onClick={handleGenerate}
               disabled={isGenerating}
-              className="w-full py-3 bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-lg font-medium shadow-lg shadow-gray-200 hover:shadow-xl transition-all flex items-center justify-center gap-2"
+              className="w-full py-3 bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-lg font-medium shadow-lg shadow-gray-200 hover:shadow-xl transition-all flex items-center justify-center gap-2 mt-4"
             >
               {isGenerating ? <Loader2 className="animate-spin" /> : <Wand2 size={18} />}
               Lizenz generieren & E-Mail entwerfen
             </button>
           ) : (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-4 animate-fade-in mt-4">
                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-2 text-gray-500">
                     <Mail size={16} />

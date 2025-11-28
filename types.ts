@@ -17,6 +17,7 @@ export interface License {
   organization: string;
   contactPerson: string;
   email: string;
+  phoneNumber?: string; // New field
   domain: string; // z.B. ffw-musterstadt.de
   key: string;
   validUntil: string;
@@ -30,6 +31,7 @@ export interface LicenseRequest {
   organization: string;
   contactPerson: string;
   email: string;
+  phoneNumber?: string; // New field
   requestedDomain: string;
   requestDate: string;
   note?: string;
