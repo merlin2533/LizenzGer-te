@@ -1,0 +1,5 @@
+{
+  "name": "FFw-Gerätewart Lizenz Manager",
+  "description": "Verwaltungstool für Software-Lizenzen im Bereich Feuerwehr-Gerätewartung. Features verwalten, Anfragen bearbeiten und Lizenzschlüssel generieren.",
+  "requestFramePermissions": []
+}
