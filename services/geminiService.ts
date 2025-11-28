@@ -2,8 +2,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { FeatureSet } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 export const generateWelcomeEmail = async (
   organization: string,
   contactPerson: string,
@@ -11,7 +9,43 @@ export const generateWelcomeEmail = async (
   features: FeatureSet,
   validUntil: string
 ): Promise<string> => {
-  if (!process.env.API_KEY) return "API Key missing. Cannot generate email.";
+  // Fallback content if no API Key is provided, preventing the "Set API Key" error
+  if (!process.env.API_KEY) {
+    const featureList = Object.entries(features)
+      .filter(([_, enabled]) => enabled)
+      .map(([key]) => {
+        switch (key) {
+          case 'inventory': return 'Grundinventar';
+          case 'respiratory': return 'Atemschutz';
+          case 'hoses': return 'Schlauchmanagement';
+          case 'vehicles': return 'Fahrtenbuch';
+          case 'apiAccess': return 'API';
+          default: return key;
+        }
+      })
+      .join(', ');
+
+    return `Betreff: Willkommen beim FFw-Gerätewart Manager - Ihre Lizenz
+
+Sehr geehrte Damen und Herren,
+hallo ${contactPerson},
+
+vielen Dank für Ihre Registrierung für "${organization}".
+
+Ihre Lizenz wurde erfolgreich generiert.
+Lizenzschlüssel: ${key}
+Gültig bis: ${new Date(validUntil).toLocaleDateString('de-DE')}
+
+Freigeschaltete Module:
+${featureList}
+
+Bitte tragen Sie diesen Schlüssel in den Einstellungen Ihrer Installation ein.
+
+Mit freundlichen Grüßen
+Ihr Support Team`;
+  }
+
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const featureList = Object.entries(features)
     .filter(([_, enabled]) => enabled)
@@ -49,13 +83,14 @@ export const generateWelcomeEmail = async (
     return response.text || "Konnte keine E-Mail generieren.";
   } catch (error) {
     console.error("Gemini Error:", error);
-    return "Fehler bei der Generierung der E-Mail.";
+    return "Fehler bei der Generierung der E-Mail (API Fehler).";
   }
 };
 
 export const analyzeRequest = async (note: string, organization: string): Promise<string> => {
    if (!process.env.API_KEY) return "";
    
+   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
    const prompt = `
      Analysiere diese Kundenanfrage für eine Feuerwehr-Software.
      Organisation: ${organization}

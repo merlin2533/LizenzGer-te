@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Database, Plus, Trash2, ServerCog, HardDrive, LayoutGrid, Globe } from 'lucide-react';
+import { Upload, Download, Database, Plus, Trash2, ServerCog, HardDrive, LayoutGrid, Globe, ScrollText } from 'lucide-react';
 import { ModuleDefinition, ApiLogEntry } from '../types';
 import { ICON_REGISTRY } from '../config';
 import { ApiConsole } from './ApiConsole';
@@ -16,7 +16,7 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modules, apiLogs, onApiRequest, apiUrl, onSaveApiUrl }) => {
-  const [activeSection, setActiveSection] = useState<'general' | 'modules' | 'api'>('general');
+  const [activeSection, setActiveSection] = useState<'general' | 'modules' | 'api' | 'logs'>('general');
   const [newModule, setNewModule] = useState<ModuleDefinition>({
     id: '',
     label: '',
@@ -64,10 +64,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modul
       </header>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 gap-6">
+      <div className="flex border-b border-gray-200 gap-6 overflow-x-auto">
         <button 
           onClick={() => setActiveSection('general')}
-          className={`pb-3 text-sm font-medium transition-colors border-b-2 ${activeSection === 'general' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`pb-3 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${activeSection === 'general' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
         >
           <div className="flex items-center gap-2">
             <HardDrive size={16} />
@@ -76,7 +76,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modul
         </button>
         <button 
           onClick={() => setActiveSection('modules')}
-          className={`pb-3 text-sm font-medium transition-colors border-b-2 ${activeSection === 'modules' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`pb-3 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${activeSection === 'modules' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
         >
           <div className="flex items-center gap-2">
              <LayoutGrid size={16} />
@@ -84,8 +84,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modul
           </div>
         </button>
         <button 
+          onClick={() => setActiveSection('logs')}
+          className={`pb-3 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${activeSection === 'logs' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <div className="flex items-center gap-2">
+            <ScrollText size={16} />
+            Request Logs
+          </div>
+        </button>
+        <button 
           onClick={() => setActiveSection('api')}
-          className={`pb-3 text-sm font-medium transition-colors border-b-2 ${activeSection === 'api' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`pb-3 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${activeSection === 'api' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
         >
           <div className="flex items-center gap-2">
             <ServerCog size={16} />
@@ -249,6 +258,75 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modul
                     </div>
                 );
             })}
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'logs' && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+             <h3 className="font-bold text-gray-900 flex items-center gap-2">
+               <ScrollText size={18} className="text-slate-600" />
+               Eingehende Requests (History)
+             </h3>
+             <span className="text-xs bg-slate-200 px-2 py-1 rounded text-slate-600">
+                {apiLogs.length} Einträge
+             </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-white text-gray-500 font-bold border-b border-gray-200 text-xs uppercase tracking-wider">
+                <tr>
+                   <th className="p-4 w-40">Zeitstempel</th>
+                   <th className="p-4">Origin (Quelle)</th>
+                   <th className="p-4">API Key</th>
+                   <th className="p-4">Method/Path</th>
+                   <th className="p-4">Status</th>
+                   <th className="p-4">Response Preview</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                 {apiLogs.length === 0 ? (
+                    <tr>
+                        <td colSpan={6} className="p-8 text-center text-gray-400 italic">Keine Logs vorhanden.</td>
+                    </tr>
+                 ) : (
+                    apiLogs.slice().reverse().map(log => (
+                   <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                     <td className="p-4 whitespace-nowrap text-gray-600 font-mono text-xs">
+                       {new Date(log.timestamp).toLocaleString('de-DE')}
+                     </td>
+                     <td className="p-4 font-mono text-blue-600 font-medium">
+                       {log.sourceUrl}
+                     </td>
+                     <td className="p-4 font-mono text-xs">
+                       {log.providedKey ? (
+                           <span className="bg-yellow-50 text-yellow-800 px-1.5 py-0.5 rounded border border-yellow-100">{log.providedKey}</span>
+                       ) : (
+                           <span className="text-gray-400 italic">Auto-Reg</span>
+                       )}
+                     </td>
+                     <td className="p-4 text-xs font-mono text-gray-500">
+                        {log.method} {log.endpoint}
+                     </td>
+                     <td className="p-4">
+                       <span className={`px-2 py-1 rounded text-xs font-bold border ${
+                         log.responseStatus === 200 || log.responseStatus === 201 
+                         ? 'bg-green-50 text-green-700 border-green-100' 
+                         : 'bg-red-50 text-red-700 border-red-100'
+                       }`}>
+                         {log.responseStatus}
+                       </span>
+                     </td>
+                     <td className="p-4 text-xs font-mono text-gray-500 max-w-[200px]">
+                       <div className="truncate" title={log.responseBody}>
+                         {log.responseBody}
+                       </div>
+                     </td>
+                   </tr>
+                 )))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
