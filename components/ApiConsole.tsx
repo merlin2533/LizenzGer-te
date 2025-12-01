@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Globe, Key, Code, ArrowRight, Copy, Server, ServerCog, AlertTriangle, FileJson, Terminal, Download, FileCode } from 'lucide-react';
+import { Send, Globe, Key, Code, ArrowRight, Copy, Server, ServerCog, AlertTriangle, FileJson, Terminal, Download, FileCode, CheckCircle2 } from 'lucide-react';
 import { ApiLogEntry } from '../types';
 
 interface ApiConsoleProps {
@@ -121,7 +121,6 @@ $dbFile = 'ffw_licenses.sqlite';
 
 try {
     // Prüfen ob DB existiert, sonst erstellen (INIT)
-    $dbExists = file_exists($dbFile);
     $db = new SQLite3($dbFile);
     
     // Auto-Init: Tabellenstruktur erstellen, wenn sie noch nicht existiert
@@ -358,7 +357,7 @@ try {
 
                 <div className="bg-green-50 border border-green-200 rounded p-4 mb-4">
                      <div className="flex items-center gap-2 text-green-800 font-bold text-sm mb-2">
-                        <AlertTriangle size={16} />
+                        <CheckCircle2 size={16} />
                         <span>Logik Update: Auto-Init & Auto-Request</span>
                      </div>
                      <p className="text-xs text-green-700 leading-relaxed mb-3">
@@ -465,4 +464,3 @@ try {
     </div>
   );
 };
-    

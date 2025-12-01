@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { License, FeatureSet, ModuleDefinition } from '../types';
 import { ShieldCheck, ShieldAlert, Check, Globe, Phone, Pencil, Save, X, MessageSquare, Building2, User, Mail, Calendar } from 'lucide-react';
 import { ICON_REGISTRY } from '../config';
@@ -7,7 +6,7 @@ import { ICON_REGISTRY } from '../config';
 interface LicenseCardProps {
   license: License;
   onUpdateFeatures: (id: string, features: FeatureSet) => void;
-  onUpdateDetails: (id: string, details: Partial<License>) => void;
+  onUpdateDetails: (id: string, details: Partial<License>) => Promise<void> | void;
   onRevoke: (id: string) => void;
   availableModules: ModuleDefinition[];
 }
@@ -44,14 +43,26 @@ export const LicenseCard: React.FC<LicenseCardProps> = ({ license, onUpdateFeatu
   const [note, setNote] = useState(license.note || '');
   const [validUntil, setValidUntil] = useState(license.validUntil);
 
+  // Sync state with props when license updates (but not while editing to avoid overwriting user input)
+  useEffect(() => {
+    if (!isEditing) {
+        setOrg(license.organization);
+        setContact(license.contactPerson);
+        setEmail(license.email);
+        setPhone(license.phoneNumber || '');
+        setNote(license.note || '');
+        setValidUntil(license.validUntil);
+    }
+  }, [license, isEditing]);
+
   const toggleFeature = (key: string) => {
     if (isEditing) return; // Prevent toggling while editing details
     const newFeatures = { ...license.features, [key]: !license.features[key] };
     onUpdateFeatures(license.id, newFeatures);
   };
 
-  const handleSave = () => {
-    onUpdateDetails(license.id, {
+  const handleSave = async () => {
+    await onUpdateDetails(license.id, {
         organization: org,
         contactPerson: contact,
         email: email,

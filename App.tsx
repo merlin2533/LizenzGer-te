@@ -82,8 +82,9 @@ export default function App() {
          };
       } else {
         // 2. No License found -> Check if Request exists
-        const allRequests = await DB.getRequests();
-        const existingReq = allRequests.find(r => r.requestedDomain.toLowerCase() === sourceUrl.toLowerCase());
+        // We use the new helper method directly or find from current state if safer
+        // To ensure we are atomic against DB, we use DB calls.
+        const existingReq = await DB.findRequestByDomain(sourceUrl);
 
         if (existingReq) {
              responseStatus = 200; // Success, but pending
@@ -93,7 +94,7 @@ export default function App() {
                  requestId: existingReq.id
              };
         } else {
-             // 3. No License & No Request -> Create Request
+             // 3. No License & No Request -> Create Request AUTOMATICALLY
              const newReq: LicenseRequest = {
                  id: `req_auto_${Date.now()}`,
                  organization: 'Unbekannt (Auto-Request)',
@@ -101,7 +102,7 @@ export default function App() {
                  email: `admin@${sourceUrl}`,
                  requestedDomain: sourceUrl,
                  requestDate: new Date().toISOString(),
-                 note: 'Automatische Anfrage durch Installation'
+                 note: 'Automatische Anfrage durch Installation (API)'
              };
              
              await DB.createRequest(newReq);
@@ -164,7 +165,6 @@ export default function App() {
     }
 
     const currentApiUrl = await DB.getSetting('apiUrl') || "/api/v1/license/verify";
-    // We only need the path if the setting contains the full URL, but here we just simulate endpoint
     const endpointPath = new URL(currentApiUrl).pathname;
 
     const newLog: ApiLogEntry = {
@@ -204,10 +204,7 @@ export default function App() {
                     body = JSON.parse(init.body as string);
                 }
 
-                // Determine Headers (Origin is mostly protected in browsers, check X-Source-Origin or fallback)
-                // Note: Standard 'Origin' header is usually immutable in browser fetch.
-                // We use a custom logic: if running in simulator, we trust the 'Origin' header provided in the init options
-                // (even though browser might ignore it, we can read it here before it goes to network)
+                // Determine Headers
                 const headers = init.headers as Record<string, string>;
                 const origin = headers?.['Origin'] || headers?.['origin'] || window.location.hostname;
                 

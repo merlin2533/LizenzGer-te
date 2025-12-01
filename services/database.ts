@@ -360,6 +360,25 @@ export const getRequests = async (): Promise<LicenseRequest[]> => {
   })) as LicenseRequest[];
 };
 
+export const findRequestByDomain = async (domain: string): Promise<LicenseRequest | null> => {
+    if (!db) await initDatabase();
+    const res = db.exec("SELECT * FROM requests WHERE lower(requestedDomain) = lower(?)", [domain]);
+    if (!res.length) return null;
+    
+    const columns = res[0].columns;
+    const row = res[0].values[0];
+    return {
+        id: row[columns.indexOf('id')],
+        organization: row[columns.indexOf('organization')],
+        contactPerson: row[columns.indexOf('contactPerson')],
+        email: row[columns.indexOf('email')],
+        phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
+        requestedDomain: row[columns.indexOf('requestedDomain')],
+        requestDate: row[columns.indexOf('requestDate')],
+        note: row[columns.indexOf('note')]
+    } as LicenseRequest;
+};
+
 export const createRequest = async (request: LicenseRequest) => {
   if (!db) await initDatabase();
   db.run(`INSERT INTO requests (id, organization, contactPerson, email, requestedDomain, requestDate, note, phoneNumber) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
