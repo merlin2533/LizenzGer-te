@@ -214,6 +214,58 @@ export const uploadDatabaseFile = async (file: File): Promise<void> => {
     });
 };
 
+export const mergeExternalData = async (externalLicenses: any[], externalRequests: any[]) => {
+    if (!db) await initDatabase();
+    
+    // 1. Merge Licenses
+    const licStmt = db.prepare(`INSERT OR REPLACE INTO licenses 
+        (id, organization, contactPerson, email, domain, key, validUntil, status, features, createdAt, phoneNumber, note) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+    externalLicenses.forEach((lic: any) => {
+        // Ensure features is a string
+        const features = typeof lic.features === 'string' ? lic.features : JSON.stringify(lic.features);
+        licStmt.run([
+            lic.id,
+            lic.organization,
+            lic.contactPerson,
+            lic.email,
+            lic.domain,
+            lic.key,
+            lic.validUntil,
+            lic.status,
+            features,
+            lic.createdAt,
+            lic.phoneNumber || null,
+            lic.note || null
+        ]);
+    });
+    licStmt.free();
+
+    // 2. Merge Requests
+    // For requests, we primarily want to ADD new ones. 
+    // If a request ID exists locally, we might update it, but usually requests are transient.
+    const reqStmt = db.prepare(`INSERT OR REPLACE INTO requests 
+        (id, organization, contactPerson, email, requestedDomain, requestDate, note, phoneNumber) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+
+    externalRequests.forEach((req: any) => {
+        reqStmt.run([
+            req.id,
+            req.organization,
+            req.contactPerson,
+            req.email,
+            req.requestedDomain,
+            req.requestDate,
+            req.note || null,
+            req.phoneNumber || null
+        ]);
+    });
+    reqStmt.free();
+
+    saveDatabase();
+};
+
 // --- DATA ACCESS METHODS ---
 
 // SETTINGS

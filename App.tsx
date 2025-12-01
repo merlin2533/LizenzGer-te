@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { License, LicenseRequest, FeatureSet, DEFAULT_FEATURES, ApiLogEntry, ModuleDefinition } from './types';
 import { LicenseCard } from './components/LicenseCard';
@@ -5,7 +6,7 @@ import { RequestModal } from './components/RequestModal';
 import { CreateLicenseModal } from './components/CreateLicenseModal';
 import { ApiConsole } from './components/ApiConsole';
 import { SettingsView } from './components/SettingsView';
-import { LayoutDashboard, Inbox, KeyRound, Search, Flame, ServerCog, Activity, Database, Download, Settings, Plus, UserPlus, Filter } from 'lucide-react';
+import { LayoutDashboard, Inbox, KeyRound, Search, Flame, ServerCog, Activity, Database, Download, Settings, Plus, UserPlus, Filter, RefreshCw } from 'lucide-react';
 import * as DB from './services/database';
 import { ICON_REGISTRY } from './config';
 
@@ -25,6 +26,8 @@ export default function App() {
   const [apiLogs, setApiLogs] = useState<ApiLogEntry[]>([]);
   const [dbReady, setDbReady] = useState(false);
   const [apiUrl, setApiUrl] = useState("https://lizenz.straub-it.de/v1/license/verify");
+  
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Initialize DB and load data
   useEffect(() => {
@@ -35,6 +38,18 @@ export default function App() {
     };
     init();
   }, []);
+
+  // Background Sync Interval
+  useEffect(() => {
+    if (!dbReady) return;
+
+    // Run sync every 30 seconds
+    const intervalId = setInterval(() => {
+      handleServerSync(true); // silent mode
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [dbReady]);
 
   const refreshData = async () => {
     const lics = await DB.getLicenses();
@@ -53,6 +68,46 @@ export default function App() {
   const handleUpdateApiUrl = async (url: string) => {
       await DB.saveSetting('apiUrl', url);
       setApiUrl(url);
+  };
+
+  const handleServerSync = async (silent = false) => {
+    const secret = await DB.getSetting('adminSecret');
+    const currentUrl = await DB.getSetting('apiUrl');
+
+    if (!secret || !currentUrl) {
+        if (!silent) alert("Bitte Admin Secret und API URL in den Einstellungen konfigurieren.");
+        return;
+    }
+
+    if (!silent) setIsSyncing(true);
+
+    try {
+        // Assume the sync endpoint is the same file as the API URL
+        const response = await fetch(currentUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                action: 'sync_admin', 
+                secret: secret 
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            console.error("Sync Error:", data.error);
+            if (!silent) alert("Sync Fehler: " + data.error);
+        } else if (data.licenses && data.requests) {
+            await DB.mergeExternalData(data.licenses, data.requests);
+            await refreshData();
+            if (!silent) alert("Synchronisation erfolgreich!");
+        }
+    } catch (e) {
+        console.error("Sync Network Error:", e);
+        if (!silent) alert("Verbindungsfehler beim Sync.");
+    } finally {
+        if (!silent) setIsSyncing(false);
+    }
   };
 
   // Simulate API Logic against SQLite
@@ -200,7 +255,22 @@ export default function App() {
         const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
         
         // Check if the request matches our configured API URL
-        if (urlStr === apiUrl && init?.method === 'POST') {
+        // AND make sure it is NOT the sync action (we want Sync to actually hit the network if possible, 
+        // OR if this is simulation only, we can't really sync with "self" easily without more logic.
+        // For now, let's assume if the user configured a REAL external URL for sync, we let it pass.
+        // But if they are just testing locally, the interceptor handles verify/create.
+        
+        // Logic: Intercept ONLY if logic matches standard verification. 
+        // Sync requests have a special body 'action: sync_admin'.
+        let isSyncRequest = false;
+        if (init?.body) {
+            try {
+                const b = JSON.parse(init.body as string);
+                if (b.action === 'sync_admin') isSyncRequest = true;
+            } catch(e) {}
+        }
+
+        if (urlStr === apiUrl && init?.method === 'POST' && !isSyncRequest) {
             console.log(`[API SIMULATOR] Intercepting fetch to ${urlStr}`);
             
             try {
@@ -389,6 +459,15 @@ export default function App() {
              >
                 <Settings size={18} />
                 Einstellungen
+             </button>
+             
+             <button 
+                onClick={() => handleServerSync()}
+                disabled={isSyncing}
+                className={`w-full flex items-center gap-3 px-4 py-3 mt-2 rounded-lg text-sm font-medium transition-colors text-slate-400 hover:bg-slate-800 hover:text-white group`}
+             >
+                <RefreshCw size={18} className={`group-hover:text-blue-400 ${isSyncing ? 'animate-spin text-blue-500' : ''}`} />
+                {isSyncing ? 'Synchronisiere...' : 'Server Sync'}
              </button>
           </div>
         </nav>

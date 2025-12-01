@@ -117,6 +117,8 @@ $origin = $headers['Origin'] ?? $_SERVER['HTTP_ORIGIN'] ?? 'unknown';
 $domain = parse_url($origin, PHP_URL_HOST) ?: $origin;
 
 $key = $input['key'] ?? null;
+$action = $input['action'] ?? null;
+$secret = $input['secret'] ?? null;
 $dbFile = 'ffw_licenses.sqlite';
 
 try {
@@ -156,6 +158,35 @@ try {
 
     $now = new DateTime();
     
+    // --- SCENARIO 3: ADMIN SYNC (Datenabgleich) ---
+    if ($action === 'sync_admin') {
+        if ($secret !== '123456') { // TODO: Hier sicheres Passwort setzen oder aus Config laden
+             http_response_code(403);
+             echo json_encode(['error' => 'Invalid Secret']);
+             exit();
+        }
+
+        $licRes = $db->query("SELECT * FROM licenses");
+        $licenses = [];
+        while ($row = $licRes->fetchArray(SQLITE3_ASSOC)) {
+            $row['features'] = json_decode($row['features'], true);
+            $licenses[] = $row;
+        }
+
+        $reqRes = $db->query("SELECT * FROM requests");
+        $requests = [];
+        while ($row = $reqRes->fetchArray(SQLITE3_ASSOC)) {
+            $requests[] = $row;
+        }
+        
+        echo json_encode([
+            'status' => 'ok',
+            'licenses' => $licenses,
+            'requests' => $requests
+        ]);
+        exit();
+    }
+
     if (!$key) {
         // --- SCENARIO 1: AUTO REGISTRATION / CHECK (Kein Key angegeben) ---
         
@@ -358,11 +389,11 @@ try {
                 <div className="bg-green-50 border border-green-200 rounded p-4 mb-4">
                      <div className="flex items-center gap-2 text-green-800 font-bold text-sm mb-2">
                         <CheckCircle2 size={16} />
-                        <span>Logik Update: Auto-Init & Auto-Request</span>
+                        <span>Logik Update: Full Sync Support</span>
                      </div>
                      <p className="text-xs text-green-700 leading-relaxed mb-3">
-                        Das Skript erstellt die Datenbank <code>ffw_licenses.sqlite</code> automatisch, wenn sie noch nicht existiert. 
-                        Unbekannte Domains lösen keine Fehler mehr aus, sondern erstellen eine "Anfrage", die Sie in dieser App freigeben können.
+                        Das Skript unterstützt nun die Synchronisation (`sync_admin`) für den automatischen Hintergrundabgleich.
+                        Das Datenbank-Setup und der CORS-Support sind integriert.
                      </p>
                      
                      <div className="flex gap-2">

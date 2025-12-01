@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Database, Plus, Trash2, ServerCog, HardDrive, LayoutGrid, Globe, ScrollText } from 'lucide-react';
+import { Upload, Download, Database, Plus, Trash2, ServerCog, HardDrive, LayoutGrid, Globe, ScrollText, Lock } from 'lucide-react';
 import { ModuleDefinition, ApiLogEntry } from '../types';
 import { ICON_REGISTRY } from '../config';
 import { ApiConsole } from './ApiConsole';
@@ -24,10 +24,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modul
     iconName: 'Server'
   });
   const [localApiUrl, setLocalApiUrl] = useState(apiUrl);
+  const [adminSecret, setAdminSecret] = useState('');
 
   useEffect(() => {
     setLocalApiUrl(apiUrl);
+    DB.getSetting('adminSecret').then(val => {
+        if (val) setAdminSecret(val);
+        else setAdminSecret('123456'); // Default suggestion
+    });
   }, [apiUrl]);
+
+  const handleSaveSecret = async () => {
+      await DB.saveSetting('adminSecret', adminSecret);
+      alert('Admin Secret gespeichert.');
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -144,32 +154,61 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modul
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-                    <Globe size={18} className="text-purple-600" />
-                    API Endpunkt Konfiguration
-                </h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  Definieren Sie die öffentliche URL, unter der die API erreichbar ist. Dies wird für Dokumentation und Beispiele verwendet.
-                </p>
-                
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Public API Endpoint URL</label>
-                <div className="flex gap-2">
-                    <input 
-                        type="text" 
-                        value={localApiUrl}
-                        onChange={(e) => setLocalApiUrl(e.target.value)}
-                        className="flex-1 p-2 border border-gray-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        placeholder="https://api..."
-                    />
-                    <button 
-                        onClick={() => onSaveApiUrl(localApiUrl)}
-                        className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800"
-                    >
-                        Speichern
-                    </button>
+              <div className="space-y-6">
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                        <Globe size={18} className="text-purple-600" />
+                        API Endpunkt Konfiguration
+                    </h3>
+                    <p className="text-sm text-gray-500 mb-4">
+                    Definieren Sie die öffentliche URL, unter der die API erreichbar ist.
+                    </p>
+                    
+                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Public API Endpoint URL</label>
+                    <div className="flex gap-2">
+                        <input 
+                            type="text" 
+                            value={localApiUrl}
+                            onChange={(e) => setLocalApiUrl(e.target.value)}
+                            className="flex-1 p-2 border border-gray-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            placeholder="https://api..."
+                        />
+                        <button 
+                            onClick={() => onSaveApiUrl(localApiUrl)}
+                            className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800"
+                        >
+                            Speichern
+                        </button>
+                    </div>
                 </div>
-            </div>
+
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                        <Lock size={18} className="text-orange-600" />
+                        Server Sync Authentifizierung
+                    </h3>
+                    <p className="text-sm text-gray-500 mb-4">
+                    Passwort für den Datenabgleich mit dem PHP-Backend.
+                    </p>
+                    
+                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Admin Secret</label>
+                    <div className="flex gap-2">
+                        <input 
+                            type="password" 
+                            value={adminSecret}
+                            onChange={(e) => setAdminSecret(e.target.value)}
+                            className="flex-1 p-2 border border-gray-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            placeholder="Secret..."
+                        />
+                        <button 
+                            onClick={handleSaveSecret}
+                            className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800"
+                        >
+                            Speichern
+                        </button>
+                    </div>
+                </div>
+              </div>
             </div>
         </div>
       )}
