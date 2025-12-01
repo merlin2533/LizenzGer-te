@@ -82,7 +82,6 @@ export default function App() {
     if (!silent) setIsSyncing(true);
 
     try {
-        // Assume the sync endpoint is the same file as the API URL
         const response = await fetch(currentUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -91,6 +90,16 @@ export default function App() {
                 secret: secret 
             })
         });
+
+        // Check content type to avoid parsing HTML 404 pages as JSON
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            if (!silent) {
+                 console.warn("Sync Endpoint returned non-JSON response.", await response.text());
+                 // Don't alert if silent, but log warning
+            }
+            throw new Error(`Server returned ${response.status} ${response.statusText} (Not JSON)`);
+        }
 
         const data = await response.json();
 
@@ -102,28 +111,41 @@ export default function App() {
             await refreshData();
             if (!silent) alert("Synchronisation erfolgreich!");
         }
-    } catch (e) {
-        console.error("Sync Network Error:", e);
-        if (!silent) alert("Verbindungsfehler beim Sync.");
+    } catch (e: any) {
+        console.error("Sync Network Error:", e.message);
+        if (!silent) alert(`Verbindungsfehler beim Sync: ${e.message}`);
     } finally {
         if (!silent) setIsSyncing(false);
     }
   };
 
+  // Helper to clean domain (remove protocol, port, path)
+  const normalizeDomain = (url: string) => {
+      if (!url) return 'unknown';
+      let normalized = url.toLowerCase().trim();
+      // Remove protocol
+      normalized = normalized.replace(/^https?:\/\//, '');
+      // Remove path and query
+      normalized = normalized.split('/')[0];
+      // Remove port if present
+      normalized = normalized.split(':')[0];
+      return normalized;
+  };
+
   // Simulate API Logic against SQLite
   const handleApiRequest = useCallback(async (sourceUrl: string, key?: string): Promise<ApiLogEntry> => {
-    // Artificial Delay to simulate network (only if direct call)
-    // await new Promise(resolve => setTimeout(resolve, 600));
-
     let responseStatus: 200 | 201 | 401 | 403 = 200;
     let responseBody: any = {};
     const now = new Date();
+    
+    // Normalize domain for consistent DB lookups
+    const domain = normalizeDomain(sourceUrl);
 
     if (!key) {
       // SCENARIO 1: No Key provided (Auto Check)
       
       // 1. Check if License exists for this domain
-      const existingLicense = await DB.findLicenseByDomain(sourceUrl);
+      const existingLicense = await DB.findLicenseByDomain(domain);
       
       if (existingLicense) {
          // License found! Check validity
@@ -134,8 +156,8 @@ export default function App() {
          responseStatus = 200;
          responseBody = {
            status: isExpired ? 'expired' : 'active',
-           message: isExpired ? 'License expired. Please renew.' : 'License found for this domain.',
-           key: existingLicense.key, 
+           message: isExpired ? 'License expired. Please renew.' : 'License found.',
+           key: existingLicense.key, // AUTO-RECOVERY: Return Key
            validUntil: existingLicense.validUntil,
            daysRemaining: daysRemaining,
            modules: isExpired ? [] : Object.entries(existingLicense.features).filter(([_, v]) => v).map(([k]) => k),
@@ -143,15 +165,13 @@ export default function App() {
          };
       } else {
         // 2. No License found -> Check if Request exists
-        // We use the new helper method directly or find from current state if safer
-        // To ensure we are atomic against DB, we use DB calls.
-        const existingReq = await DB.findRequestByDomain(sourceUrl);
+        const existingReq = await DB.findRequestByDomain(domain);
 
         if (existingReq) {
              responseStatus = 200; // Success, but pending
              responseBody = {
                  status: 'pending',
-                 message: 'Die Registrierungsanfrage für diese Domain wartet auf Freigabe.',
+                 message: 'Registrierungsanfrage wartet auf Freigabe.',
                  requestId: existingReq.id
              };
         } else {
@@ -160,8 +180,8 @@ export default function App() {
                  id: `req_auto_${Date.now()}`,
                  organization: 'Unbekannt (Auto-Request)',
                  contactPerson: 'System Admin',
-                 email: `admin@${sourceUrl}`,
-                 requestedDomain: sourceUrl,
+                 email: `admin@${domain}`,
+                 requestedDomain: domain,
                  requestDate: new Date().toISOString(),
                  note: 'Automatische Anfrage durch Installation (API)'
              };
@@ -184,7 +204,7 @@ export default function App() {
       if (!license) {
         responseStatus = 403;
         responseBody = { error: 'Invalid License Key' };
-      } else if (license.domain.toLowerCase() !== sourceUrl.toLowerCase()) {
+      } else if (normalizeDomain(license.domain) !== domain) {
         responseStatus = 403;
         responseBody = { error: 'License Key does not match Origin Domain' };
       } else if (license.status === 'suspended') {
@@ -254,39 +274,47 @@ export default function App() {
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
         const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
         
-        // Check if the request matches our configured API URL
-        // AND make sure it is NOT the sync action (we want Sync to actually hit the network if possible, 
-        // OR if this is simulation only, we can't really sync with "self" easily without more logic.
-        // For now, let's assume if the user configured a REAL external URL for sync, we let it pass.
-        // But if they are just testing locally, the interceptor handles verify/create.
-        
-        // Logic: Intercept ONLY if logic matches standard verification. 
-        // Sync requests have a special body 'action: sync_admin'.
         let isSyncRequest = false;
+        let parsedBody: any = {};
         if (init?.body) {
             try {
-                const b = JSON.parse(init.body as string);
-                if (b.action === 'sync_admin') isSyncRequest = true;
+                parsedBody = JSON.parse(init.body as string);
+                if (parsedBody.action === 'sync_admin') isSyncRequest = true;
             } catch(e) {}
         }
 
-        if (urlStr === apiUrl && init?.method === 'POST' && !isSyncRequest) {
+        // Intercept if it matches configured API URL
+        if (urlStr === apiUrl && init?.method === 'POST') {
             console.log(`[API SIMULATOR] Intercepting fetch to ${urlStr}`);
             
             try {
-                // Parse Body
+                // HANDLE SYNC REQUEST LOCALLY
+                if (isSyncRequest) {
+                     const storedSecret = await DB.getSetting('adminSecret') || '123456';
+                     if (parsedBody.secret !== storedSecret) {
+                          return new Response(JSON.stringify({ error: 'Invalid Secret' }), { status: 403, headers: {'Content-Type': 'application/json'} });
+                     }
+                     const lics = await DB.getLicenses();
+                     const reqs = await DB.getRequests();
+                     
+                     return new Response(JSON.stringify({
+                         status: 'ok',
+                         licenses: lics,
+                         requests: reqs
+                     }), { status: 200, headers: {'Content-Type': 'application/json'} });
+                }
+
+                // HANDLE STANDARD LICENSE REQUEST
                 let body: any = {};
                 if (init.body) {
                     body = JSON.parse(init.body as string);
                 }
 
-                // Determine Headers
                 const headers = init.headers as Record<string, string>;
                 const origin = headers?.['Origin'] || headers?.['origin'] || window.location.hostname;
                 
                 const result = await handleApiRequest(origin, body.key);
 
-                // Return a fake Response object
                 return new Response(result.responseBody, {
                     status: result.responseStatus,
                     statusText: result.responseStatus === 200 ? 'OK' : 'Error',
@@ -306,7 +334,6 @@ export default function App() {
     };
 
     return () => {
-        // Restore original fetch on cleanup
         window.fetch = originalFetch;
     };
   }, [apiUrl, handleApiRequest]);
@@ -325,13 +352,13 @@ export default function App() {
       contactPerson: updatedDetails.contactPerson,
       email: updatedDetails.email,
       phoneNumber: updatedDetails.phoneNumber,
-      domain: request.requestedDomain,
+      domain: normalizeDomain(request.requestedDomain), // Normalize domain on approval too
       key: `FFW-${Math.random().toString(36).substr(2, 4).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
       validUntil,
       status: 'active',
       features,
       createdAt: new Date().toISOString(),
-      note: request.note // Transfer note from request to license initially
+      note: request.note
     };
 
     await DB.createLicense(newLicense);
@@ -354,7 +381,7 @@ export default function App() {
         contactPerson: details.contactPerson,
         email: details.email,
         phoneNumber: details.phoneNumber,
-        domain: details.domain,
+        domain: normalizeDomain(details.domain),
         key: `FFW-${Math.random().toString(36).substr(2, 4).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
         validUntil,
         status: 'active',
@@ -400,7 +427,7 @@ export default function App() {
 
     if (filterStatus === 'all') return true;
     if (filterStatus === 'suspended') return l.status === 'suspended';
-    if (filterStatus === 'expired') return isExpired; // Expired regardless of 'active' status flag
+    if (filterStatus === 'expired') return isExpired;
     if (filterStatus === 'active') return l.status === 'active' && !isExpired;
     
     return true;
@@ -625,7 +652,7 @@ export default function App() {
                         <p className="text-sm text-gray-600 mb-2">{req.contactPerson} &lt;{req.email}&gt;</p>
                         <div className="flex items-center gap-2">
                              <div className="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-2 py-1 rounded border border-gray-200">
-                                Domain: {req.requestedDomain}
+                                Domain: {normalizeDomain(req.requestedDomain)}
                              </div>
                              <div className="text-[10px] text-gray-400 font-mono">
                                 ID: {req.id}

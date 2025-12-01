@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { License, FeatureSet, ModuleDefinition } from '../types';
 import { ShieldCheck, ShieldAlert, Check, Globe, Phone, Pencil, Save, X, MessageSquare, Building2, User, Mail, Calendar } from 'lucide-react';

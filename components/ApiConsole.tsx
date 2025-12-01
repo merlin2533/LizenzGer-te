@@ -113,8 +113,12 @@ $input = json_decode(file_get_contents('php://input'), true);
 $headers = getallheaders();
 $origin = $headers['Origin'] ?? $_SERVER['HTTP_ORIGIN'] ?? 'unknown';
 
-// Origin aus Header bereinigen (https:// entfernen) für DB-Abgleich
-$domain = parse_url($origin, PHP_URL_HOST) ?: $origin;
+// Domain Normalization (Robust)
+// Wir entfernen Protokolle und Pfade, um die reine Domain zu erhalten.
+$domain = strtolower($origin);
+$domain = preg_replace('/^https?:\\/\\//', '', $domain); // Remove protocol
+$domain = explode('/', $domain)[0]; // Remove path
+$domain = explode(':', $domain)[0]; // Remove port (optional)
 
 $key = $input['key'] ?? null;
 $action = $input['action'] ?? null;
@@ -160,7 +164,8 @@ try {
     
     // --- SCENARIO 3: ADMIN SYNC (Datenabgleich) ---
     if ($action === 'sync_admin') {
-        if ($secret !== '123456') { // TODO: Hier sicheres Passwort setzen oder aus Config laden
+        // Use a secure check in production
+        if ($secret !== '123456' && $secret !== getenv('ADMIN_SECRET')) { 
              http_response_code(403);
              echo json_encode(['error' => 'Invalid Secret']);
              exit();
@@ -196,14 +201,14 @@ try {
         $res = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
         
         if ($res) {
-             // Lizenz existiert -> Rückgabe (wie beim Verify)
+             // Lizenz existiert -> Rückgabe von Key & Modulen (Auto-Configuration)
              $validUntil = new DateTime($res['validUntil']);
              $expired = $validUntil < $now;
              $features = json_decode($res['features'], true);
              
              echo json_encode([
                  'status' => $expired ? 'expired' : 'active',
-                 'key' => $res['key'],
+                 'key' => $res['key'], // WICHTIG: Key zurückgeben
                  'validUntil' => $res['validUntil'],
                  'modules' => $expired ? [] : array_keys(array_filter($features ?: [])),
                  'features' => $expired ? new stdClass() : $features,
@@ -252,8 +257,6 @@ try {
             http_response_code(403);
             echo json_encode(['error' => 'Invalid License Key']);
         } else {
-            // Optional: Strict Domain Check (Empfohlen)
-            // if (strtolower($res['domain']) !== strtolower($domain)) { ... }
              
             $validUntil = new DateTime($res['validUntil']);
             $expired = $validUntil < $now;
@@ -389,11 +392,10 @@ try {
                 <div className="bg-green-50 border border-green-200 rounded p-4 mb-4">
                      <div className="flex items-center gap-2 text-green-800 font-bold text-sm mb-2">
                         <CheckCircle2 size={16} />
-                        <span>Logik Update: Full Sync Support</span>
+                        <span>Logik Update: Auto-Recovery & Domain Cleaning</span>
                      </div>
                      <p className="text-xs text-green-700 leading-relaxed mb-3">
-                        Das Skript unterstützt nun die Synchronisation (`sync_admin`) für den automatischen Hintergrundabgleich.
-                        Das Datenbank-Setup und der CORS-Support sind integriert.
+                        Das Skript normalisiert Domains nun strikt (entfernt http/https, Ports, Pfade) und gibt bei einem Domain-Match automatisch den Lizenzschlüssel zurück.
                      </p>
                      
                      <div className="flex gap-2">
