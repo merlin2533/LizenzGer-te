@@ -39,6 +39,15 @@ export const CreateLicenseModal: React.FC<CreateLicenseModalProps> = ({ onClose,
         return;
     }
 
+    const selectedDate = new Date(validUntil);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (selectedDate <= today) {
+        alert("Das 'Gültig bis' Datum muss in der Zukunft liegen.");
+        return;
+    }
+
     setIsGenerating(true);
     // Simulate Key Generation for Email Preview
     const dummyKey = `FFW-XXXX-XXXX-${new Date().getFullYear()}`;
@@ -65,6 +74,8 @@ export const CreateLicenseModal: React.FC<CreateLicenseModalProps> = ({ onClose,
         emailContent
     );
   };
+
+  const todayStr = new Date().toISOString().split('T')[0];
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -128,7 +139,8 @@ export const CreateLicenseModal: React.FC<CreateLicenseModalProps> = ({ onClose,
                                 <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                                 <input 
                                     type="date" 
-                                    value={validUntil} 
+                                    value={validUntil}
+                                    min={todayStr}
                                     onChange={(e) => setValidUntil(e.target.value)}
                                     className="w-full pl-9 p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
                                 />
