@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { LicenseRequest, FeatureSet, DEFAULT_FEATURES, ModuleDefinition } from '../types';
 import { generateWelcomeEmail, analyzeRequest } from '../services/geminiService';
-import { Loader2, Wand2, Mail, Building2, User, Phone, Globe, MessageSquare, AlertTriangle } from 'lucide-react';
+import { Loader2, Wand2, Mail, Building2, User, Phone, Globe, MessageSquare, AlertTriangle, MessageCircle, Save } from 'lucide-react';
 
 interface RequestModalProps {
   request: LicenseRequest;
@@ -14,10 +14,11 @@ interface RequestModalProps {
     validUntil: string, 
     emailContent: string
   ) => void;
+  onUpdate?: (request: LicenseRequest, details: Partial<LicenseRequest>) => void;
   availableModules: ModuleDefinition[];
 }
 
-export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, onApprove, availableModules }) => {
+export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, onApprove, onUpdate, availableModules }) => {
   const [features, setFeatures] = useState<FeatureSet>(DEFAULT_FEATURES);
   const [validUntil, setValidUntil] = useState<string>(
     new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
@@ -28,6 +29,7 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
   const [contact, setContact] = useState(request.contactPerson);
   const [email, setEmail] = useState(request.email);
   const [phone, setPhone] = useState(request.phoneNumber || '');
+  const [customMessage, setCustomMessage] = useState(request.customMessage || '');
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [emailContent, setEmailContent] = useState('');
@@ -72,6 +74,18 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
     );
   };
 
+  const handleSaveOnly = () => {
+      if (onUpdate) {
+          onUpdate(request, {
+              organization: org,
+              contactPerson: contact,
+              email: email,
+              phoneNumber: phone,
+              customMessage: customMessage
+          });
+      }
+  };
+
   const isUnknown = org.includes('Unbekannt');
 
   return (
@@ -85,6 +99,10 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
                  <code className="text-xs bg-gray-100 px-2 py-0.5 rounded font-mono text-gray-700">{request.id}</code>
             </div>
           </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+             <span className="sr-only">Close</span>
+             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
         </div>
 
         <div className="p-6 space-y-6">
@@ -155,11 +173,26 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
              </div>
           </div>
 
-          <div>
-             <span className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
-                <Globe size={12} /> Angefragte Domain (Origin)
-             </span>
-             <p className="font-mono bg-gray-100 px-3 py-2 rounded text-sm text-gray-800 border border-gray-200">{request.requestedDomain}</p>
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+                <span className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                    <Globe size={12} /> Angefragte Domain (Origin)
+                </span>
+                <p className="font-mono bg-gray-100 px-3 py-2 rounded text-sm text-gray-800 border border-gray-200">{request.requestedDomain}</p>
+            </div>
+            
+            <div className="flex-1">
+                <span className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                    <MessageCircle size={12} className="text-purple-600" /> API Antwort Nachricht (Status Pending)
+                </span>
+                <input 
+                    type="text"
+                    value={customMessage}
+                    onChange={(e) => setCustomMessage(e.target.value)}
+                    placeholder="Standard: Registrierungsanfrage wartet auf Freigabe."
+                    className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none font-mono text-xs"
+                />
+            </div>
           </div>
 
           {/* AI Analysis */}
@@ -209,14 +242,24 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
 
           {/* AI Email Generation */}
           {!emailContent ? (
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="w-full py-3 bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-lg font-medium shadow-lg shadow-gray-200 hover:shadow-xl transition-all flex items-center justify-center gap-2 mt-4"
-            >
-              {isGenerating ? <Loader2 className="animate-spin" /> : <Wand2 size={18} />}
-              Lizenz generieren & E-Mail entwerfen
-            </button>
+            <div className="flex gap-2 mt-4">
+                 {onUpdate && (
+                     <button
+                        onClick={handleSaveOnly}
+                        className="px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 flex items-center justify-center gap-2"
+                     >
+                         <Save size={18} /> Nur Speichern
+                     </button>
+                 )}
+                <button
+                onClick={handleGenerate}
+                disabled={isGenerating}
+                className="flex-1 py-3 bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-lg font-medium shadow-lg shadow-gray-200 hover:shadow-xl transition-all flex items-center justify-center gap-2"
+                >
+                {isGenerating ? <Loader2 className="animate-spin" /> : <Wand2 size={18} />}
+                Lizenz generieren & E-Mail entwerfen
+                </button>
+            </div>
           ) : (
             <div className="space-y-4 animate-fade-in mt-4">
                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">

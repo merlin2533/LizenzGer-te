@@ -156,9 +156,14 @@ try {
           requestedDomain TEXT,
           requestDate TEXT,
           note TEXT,
-          phoneNumber TEXT
+          phoneNumber TEXT,
+          customMessage TEXT
         );
     ");
+    
+    // Migration helper: Ensure columns exist if DB was old
+    // Use @ to suppress errors if column exists
+    @$db->exec("ALTER TABLE requests ADD COLUMN customMessage TEXT");
 
     $now = new DateTime();
     
@@ -222,9 +227,11 @@ try {
              
              if ($req) {
                  // Anfrage läuft bereits
+                 $msg = !empty($req['customMessage']) ? $req['customMessage'] : 'Registrierungsanfrage wartet auf Freigabe.';
+                 
                  echo json_encode([
                     'status' => 'pending', 
-                    'message' => 'Registrierungsanfrage wartet auf Freigabe.',
+                    'message' => $msg,
                     'requestId' => $req['id']
                  ]);
              } else {
@@ -392,10 +399,10 @@ try {
                 <div className="bg-green-50 border border-green-200 rounded p-4 mb-4">
                      <div className="flex items-center gap-2 text-green-800 font-bold text-sm mb-2">
                         <CheckCircle2 size={16} />
-                        <span>Logik Update: Auto-Recovery & Domain Cleaning</span>
+                        <span>Logik Update: Custom Message & DB Migration</span>
                      </div>
                      <p className="text-xs text-green-700 leading-relaxed mb-3">
-                        Das Skript normalisiert Domains nun strikt (entfernt http/https, Ports, Pfade) und gibt bei einem Domain-Match automatisch den Lizenzschlüssel zurück.
+                        Das Skript fügt nun automatisch die Spalte 'customMessage' hinzu und gibt diese bei pending-Requests zurück.
                      </p>
                      
                      <div className="flex gap-2">

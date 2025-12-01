@@ -60,22 +60,21 @@ const ensureTablesExist = () => {
         // MIGRATION: Add phoneNumber column if it doesn't exist
         try {
             db.run("ALTER TABLE licenses ADD COLUMN phoneNumber TEXT");
-        } catch (e) {
-            // Column likely exists
-        }
+        } catch (e) { /* Column likely exists */ }
 
         // MIGRATION: Add note column if it doesn't exist
         try {
             db.run("ALTER TABLE licenses ADD COLUMN note TEXT");
-        } catch (e) {
-            // Column likely exists
-        }
+        } catch (e) { /* Column likely exists */ }
         
         try {
              db.run("ALTER TABLE requests ADD COLUMN phoneNumber TEXT");
-        } catch (e) {
-             // Column likely exists
-        }
+        } catch (e) { /* Column likely exists */ }
+
+        // MIGRATION: Add customMessage column to requests
+        try {
+             db.run("ALTER TABLE requests ADD COLUMN customMessage TEXT");
+        } catch (e) { /* Column likely exists */ }
 
         // Check if modules table is empty, if so, seed it
         const res = db.exec("SELECT count(*) as count FROM modules");
@@ -123,7 +122,8 @@ const seedDatabase = () => {
       requestedDomain TEXT,
       requestDate TEXT,
       note TEXT,
-      phoneNumber TEXT
+      phoneNumber TEXT,
+      customMessage TEXT
     );
   `);
 
@@ -243,11 +243,9 @@ export const mergeExternalData = async (externalLicenses: any[], externalRequest
     licStmt.free();
 
     // 2. Merge Requests
-    // For requests, we primarily want to ADD new ones. 
-    // If a request ID exists locally, we might update it, but usually requests are transient.
     const reqStmt = db.prepare(`INSERT OR REPLACE INTO requests 
-        (id, organization, contactPerson, email, requestedDomain, requestDate, note, phoneNumber) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+        (id, organization, contactPerson, email, requestedDomain, requestDate, note, phoneNumber, customMessage) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
     externalRequests.forEach((req: any) => {
         reqStmt.run([
@@ -258,7 +256,8 @@ export const mergeExternalData = async (externalLicenses: any[], externalRequest
             req.requestedDomain,
             req.requestDate,
             req.note || null,
-            req.phoneNumber || null
+            req.phoneNumber || null,
+            req.customMessage || null
         ]);
     });
     reqStmt.free();
@@ -366,7 +365,6 @@ export const updateLicenseFeatures = async (id: string, features: FeatureSet) =>
 
 export const updateLicenseDetails = async (id: string, details: Partial<License>) => {
   if (!db) await initDatabase();
-  // We explicitly update editable columns
   db.run(`UPDATE licenses SET 
     organization = ?, 
     contactPerson = ?, 
@@ -408,7 +406,8 @@ export const getRequests = async (): Promise<LicenseRequest[]> => {
     phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
     requestedDomain: row[columns.indexOf('requestedDomain')],
     requestDate: row[columns.indexOf('requestDate')],
-    note: row[columns.indexOf('note')]
+    note: row[columns.indexOf('note')],
+    customMessage: columns.includes('customMessage') ? row[columns.indexOf('customMessage')] : undefined
   })) as LicenseRequest[];
 };
 
@@ -427,13 +426,14 @@ export const findRequestByDomain = async (domain: string): Promise<LicenseReques
         phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
         requestedDomain: row[columns.indexOf('requestedDomain')],
         requestDate: row[columns.indexOf('requestDate')],
-        note: row[columns.indexOf('note')]
+        note: row[columns.indexOf('note')],
+        customMessage: columns.includes('customMessage') ? row[columns.indexOf('customMessage')] : undefined
     } as LicenseRequest;
 };
 
 export const createRequest = async (request: LicenseRequest) => {
   if (!db) await initDatabase();
-  db.run(`INSERT INTO requests (id, organization, contactPerson, email, requestedDomain, requestDate, note, phoneNumber) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+  db.run(`INSERT INTO requests (id, organization, contactPerson, email, requestedDomain, requestDate, note, phoneNumber, customMessage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
     request.id,
     request.organization,
     request.contactPerson,
@@ -441,9 +441,32 @@ export const createRequest = async (request: LicenseRequest) => {
     request.requestedDomain,
     request.requestDate,
     request.note || null,
-    request.phoneNumber || null
+    request.phoneNumber || null,
+    request.customMessage || null
   ]);
   saveDatabase();
+};
+
+export const updateRequest = async (request: LicenseRequest) => {
+    if (!db) await initDatabase();
+    db.run(`UPDATE requests SET 
+      organization = ?, 
+      contactPerson = ?, 
+      email = ?, 
+      phoneNumber = ?, 
+      note = ?,
+      customMessage = ?
+      WHERE id = ?`, 
+    [
+      request.organization,
+      request.contactPerson,
+      request.email,
+      request.phoneNumber || null,
+      request.note || null,
+      request.customMessage || null,
+      request.id
+    ]);
+    saveDatabase();
 };
 
 export const deleteRequest = async (id: string) => {

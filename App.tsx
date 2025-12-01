@@ -171,7 +171,7 @@ export default function App() {
              responseStatus = 200; // Success, but pending
              responseBody = {
                  status: 'pending',
-                 message: 'Registrierungsanfrage wartet auf Freigabe.',
+                 message: existingReq.customMessage || 'Registrierungsanfrage wartet auf Freigabe.',
                  requestId: existingReq.id
              };
         } else {
@@ -367,6 +367,13 @@ export default function App() {
     setSelectedRequest(null);
     setActiveTab('dashboard');
     await refreshData();
+  };
+  
+  const handleUpdateRequest = async (request: LicenseRequest, details: Partial<LicenseRequest>) => {
+      const updatedReq = { ...request, ...details };
+      await DB.updateRequest(updatedReq);
+      setSelectedRequest(null);
+      await refreshData();
   };
 
   const handleManualCreate = async (
@@ -707,6 +714,7 @@ export default function App() {
           request={selectedRequest}
           onClose={() => setSelectedRequest(null)}
           onApprove={handleApprove}
+          onUpdate={handleUpdateRequest}
           availableModules={modules}
         />
       )}

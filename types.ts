@@ -36,6 +36,7 @@ export interface LicenseRequest {
   requestedDomain: string;
   requestDate: string;
   note?: string;
+  customMessage?: string; // Custom message returned to API while pending
 }
 
 export interface ApiLogEntry {
