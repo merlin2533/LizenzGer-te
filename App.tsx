@@ -7,6 +7,7 @@ import { ApiConsole } from './components/ApiConsole';
 import { SettingsView } from './components/SettingsView';
 import { LayoutDashboard, Inbox, KeyRound, Search, Flame, ServerCog, Activity, Database, Download, Settings } from 'lucide-react';
 import * as DB from './services/database';
+import { ICON_REGISTRY } from './config';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'requests' | 'settings'>('dashboard');
@@ -381,7 +382,8 @@ export default function App() {
             </header>
 
             {/* Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Core Stats */}
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <div className="text-gray-500 text-xs font-bold uppercase mb-1">Aktive Lizenzen</div>
                 <div className="text-3xl font-bold text-gray-900">{licenses.filter(l => l.status === 'active').length}</div>
@@ -390,10 +392,6 @@ export default function App() {
                 <div className="text-gray-500 text-xs font-bold uppercase mb-1">Total Requests</div>
                 <div className="text-3xl font-bold text-gray-900">{apiLogs.length}</div>
               </div>
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                <div className="text-gray-500 text-xs font-bold uppercase mb-1">Atemschutz Module</div>
-                <div className="text-3xl font-bold text-gray-900">{licenses.filter(l => l.features.respiratory).length}</div>
-              </div>
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative overflow-hidden">
                 <div className="absolute right-0 top-0 p-3 opacity-10">
                   <Database size={48} />
@@ -401,6 +399,25 @@ export default function App() {
                 <div className="text-gray-500 text-xs font-bold uppercase mb-1">DB Size</div>
                 <div className="text-3xl font-bold text-gray-900">{(apiLogs.length * 0.5 + licenses.length * 1.2 + modules.length * 0.2).toFixed(1)} KB</div>
               </div>
+
+              {/* Dynamic Module Stats */}
+              {modules.map(module => {
+                  const Icon = ICON_REGISTRY[module.iconName] || ICON_REGISTRY['Server'];
+                  const count = licenses.filter(l => l.features[module.id]).length;
+                  return (
+                      <div key={module.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center group">
+                          <div>
+                              <div className="text-gray-500 text-xs font-bold uppercase mb-1 truncate max-w-[120px]" title={module.label}>
+                                  {module.label}
+                              </div>
+                              <div className="text-3xl font-bold text-gray-900">{count}</div>
+                          </div>
+                          <div className="text-gray-300 bg-gray-50 p-3 rounded-lg group-hover:bg-red-50 group-hover:text-red-500 transition-colors">
+                              <Icon size={20} />
+                          </div>
+                      </div>
+                  );
+              })}
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

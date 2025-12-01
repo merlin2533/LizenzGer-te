@@ -69,10 +69,14 @@ fetch('${apiUrl}', {
 /*
  * SERVER BACKEND IMPLEMENTATION
  * Speichern Sie dies als index.php (oder entsprechend Ihrer URL Struktur)
- * auf Ihrem Webserver, um echte Anfragen zu verarbeiten.
+ * auf Ihrem Webserver.
  * 
- * Voraussetzung: Die Datei 'ffw_licenses.sqlite' muss im selben Ordner liegen 
- * (Upload via App Einstellungen).
+ * AUTOMATISCHE INITIALISIERUNG:
+ * Das Skript erstellt automatisch eine leere 'ffw_licenses.sqlite', 
+ * falls diese noch nicht existiert. Sie müssen die Datei nicht manuell anlegen.
+ * 
+ * Um Lizenzen einzuspielen, laden Sie später die DB aus den App-Einstellungen
+ * herunter und überschreiben Sie die Datei auf dem Server.
  */
 
 header('Content-Type: application/json');
@@ -95,14 +99,28 @@ $domain = parse_url($origin, PHP_URL_HOST) ?: $origin;
 $key = $input['key'] ?? null;
 $dbFile = 'ffw_licenses.sqlite';
 
-if (!file_exists($dbFile)) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Datenbank nicht gefunden. Bitte in App hochladen.']);
-    exit;
-}
-
 try {
+    // Öffnet DB oder erstellt sie neu (benötigt Schreibrechte im Ordner)
     $db = new SQLite3($dbFile);
+    
+    // Auto-Init: Tabellenstruktur erstellen, falls neu
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS licenses (
+          id TEXT PRIMARY KEY,
+          organization TEXT,
+          contactPerson TEXT,
+          email TEXT,
+          domain TEXT,
+          key TEXT,
+          validUntil TEXT,
+          status TEXT,
+          features TEXT,
+          createdAt TEXT,
+          phoneNumber TEXT,
+          note TEXT
+        );
+    ");
+
     $now = new DateTime();
     
     if (!$key) {
@@ -125,9 +143,7 @@ try {
                  'features' => $expired ? new stdClass() : $features
              ]);
         } else {
-             // Create Request Log logic here or full auto-create
-             // Simplified: Return error that key is missing for new domains
-             // Or implement INSERT logic mirroring the JS App logic
+             // Hier könnte man Auto-Create Logic einfügen
              echo json_encode(['status' => 'pending', 'message' => 'Bitte Key angeben oder Anfrage über Portal stellen.']);
         }
     } else {
@@ -141,10 +157,8 @@ try {
             echo json_encode(['error' => 'Invalid Key']);
         } elseif (strtolower($res['domain']) !== strtolower($domain)) {
             // Strict Domain Check disabled for test
-            // http_response_code(403);
-            // echo json_encode(['error' => 'Domain mismatch']);
+            // Optional: http_response_code(403);
              
-            // For now just return valid to allow testing if domains mismatch
             $validUntil = new DateTime($res['validUntil']);
             $expired = $validUntil < $now;
             $features = json_decode($res['features'], true);
@@ -168,7 +182,7 @@ try {
     }
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => 'Database Error: ' . $e->getMessage()]);
 }
 ?>`;
 
@@ -285,16 +299,16 @@ try {
                      <h3 className="text-lg font-bold text-gray-900">Backend Deployment</h3>
                 </div>
 
-                <div className="bg-red-50 border border-red-200 rounded p-3 mb-4">
-                     <div className="flex items-center gap-2 text-red-800 font-bold text-xs mb-1">
+                <div className="bg-green-50 border border-green-200 rounded p-3 mb-4">
+                     <div className="flex items-center gap-2 text-green-800 font-bold text-xs mb-1">
                         <AlertTriangle size={14} />
-                        <span>Warum bekomme ich einen 404 Fehler?</span>
+                        <span>Problembehebung "Datenbank nicht gefunden"</span>
                      </div>
-                     <p className="text-xs text-red-700 leading-relaxed">
-                        Die URL <strong>{apiUrl}</strong> existiert noch nicht auf Ihrem Server. Die React App läuft nur im Browser.
+                     <p className="text-xs text-green-700 leading-relaxed">
+                        Der Code unten wurde aktualisiert. Er erstellt nun <strong>automatisch</strong> eine leere Datenbank, falls keine existiert. 
                      </p>
-                     <p className="text-xs text-red-700 mt-2">
-                        Damit Tools wie <code>cURL</code> oder externe Server zugreifen können, müssen Sie das folgende PHP-Skript auf Ihrem Server hinterlegen.
+                     <p className="text-xs text-green-700 mt-2">
+                        Kopieren Sie den neuen Code in Ihre <code>index.php</code>, um den Fehler zu beheben.
                      </p>
                 </div>
 
