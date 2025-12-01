@@ -6,7 +6,7 @@ import { RequestModal } from './components/RequestModal';
 import { CreateLicenseModal } from './components/CreateLicenseModal';
 import { ApiConsole } from './components/ApiConsole';
 import { SettingsView } from './components/SettingsView';
-import { LayoutDashboard, Inbox, KeyRound, Search, Flame, ServerCog, Activity, Database, Download, Settings, Plus, UserPlus, Filter, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, Inbox, KeyRound, Search, Flame, ServerCog, Activity, Database, Download, Settings, Plus, UserPlus, Filter, RefreshCw, AlertCircle } from 'lucide-react';
 import * as DB from './services/database';
 import { ICON_REGISTRY } from './config';
 
@@ -28,6 +28,7 @@ export default function App() {
   const [apiUrl, setApiUrl] = useState("https://lizenz.straub-it.de/v1/license/verify");
   
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(false);
 
   // Initialize DB and load data
   useEffect(() => {
@@ -70,16 +71,40 @@ export default function App() {
       setApiUrl(url);
   };
 
+  const pushToServer = async (action: string, payload: any) => {
+     const secret = await DB.getSetting('adminSecret') || '123456';
+     const currentUrl = await DB.getSetting('apiUrl');
+     if(!currentUrl) return;
+
+     try {
+         // Determine payload key based on action
+         let body: any = { action, secret };
+         if (action === 'push_license') body.license = payload;
+         if (action === 'delete_request') body.id = payload.id;
+         if (action === 'update_request') body.request = payload;
+
+         await fetch(currentUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+         });
+     } catch (e) {
+         console.error("Push failed", e);
+         // Optionally queue for later, but for now just log
+     }
+  };
+
   const handleServerSync = async (silent = false) => {
-    const secret = await DB.getSetting('adminSecret');
+    const secret = await DB.getSetting('adminSecret') || '123456';
     const currentUrl = await DB.getSetting('apiUrl');
 
-    if (!secret || !currentUrl) {
-        if (!silent) alert("Bitte Admin Secret und API URL in den Einstellungen konfigurieren.");
+    if (!currentUrl) {
+        if (!silent) alert("Bitte API URL in den Einstellungen konfigurieren.");
         return;
     }
 
     if (!silent) setIsSyncing(true);
+    setSyncError(false);
 
     try {
         const response = await fetch(currentUrl, {
@@ -91,14 +116,13 @@ export default function App() {
             })
         });
 
-        // Check content type to avoid parsing HTML 404 pages as JSON
         const contentType = response.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
             if (!silent) {
                  console.warn("Sync Endpoint returned non-JSON response.", await response.text());
-                 // Don't alert if silent, but log warning
+                 alert("Fehler: Der Server hat kein JSON zurückgegeben. Bitte prüfen Sie die API URL.");
             }
-            throw new Error(`Server returned ${response.status} ${response.statusText} (Not JSON)`);
+            throw new Error(`Server returned ${response.status} (Not JSON)`);
         }
 
         const data = await response.json();
@@ -106,6 +130,7 @@ export default function App() {
         if (data.error) {
             console.error("Sync Error:", data.error);
             if (!silent) alert("Sync Fehler: " + data.error);
+            setSyncError(true);
         } else if (data.licenses && data.requests) {
             await DB.mergeExternalData(data.licenses, data.requests);
             await refreshData();
@@ -114,6 +139,7 @@ export default function App() {
     } catch (e: any) {
         console.error("Sync Network Error:", e.message);
         if (!silent) alert(`Verbindungsfehler beim Sync: ${e.message}`);
+        setSyncError(true);
     } finally {
         if (!silent) setIsSyncing(false);
     }
@@ -123,11 +149,8 @@ export default function App() {
   const normalizeDomain = (url: string) => {
       if (!url) return 'unknown';
       let normalized = url.toLowerCase().trim();
-      // Remove protocol
       normalized = normalized.replace(/^https?:\/\//, '');
-      // Remove path and query
       normalized = normalized.split('/')[0];
-      // Remove port if present
       normalized = normalized.split(':')[0];
       return normalized;
   };
@@ -364,6 +387,10 @@ export default function App() {
     await DB.createLicense(newLicense);
     await DB.deleteRequest(request.id);
     
+    // PUSH to Server
+    await pushToServer('push_license', newLicense);
+    await pushToServer('delete_request', { id: request.id });
+    
     setSelectedRequest(null);
     setActiveTab('dashboard');
     await refreshData();
@@ -372,6 +399,9 @@ export default function App() {
   const handleUpdateRequest = async (request: LicenseRequest, details: Partial<LicenseRequest>) => {
       const updatedReq = { ...request, ...details };
       await DB.updateRequest(updatedReq);
+      // PUSH to Server
+      await pushToServer('update_request', updatedReq);
+
       setSelectedRequest(null);
       await refreshData();
   };
@@ -398,6 +428,9 @@ export default function App() {
     };
 
     await DB.createLicense(newLicense);
+    // PUSH to Server
+    await pushToServer('push_license', newLicense);
+
     setShowCreateModal(false);
     setActiveTab('dashboard');
     await refreshData();
@@ -405,17 +438,37 @@ export default function App() {
 
   const handleUpdateFeatures = async (id: string, newFeatures: FeatureSet) => {
     await DB.updateLicenseFeatures(id, newFeatures);
+    
+    // Sync update
+    const lic = await DB.findLicenseByKey(id) || licenses.find(l => l.id === id);
+    if (lic) {
+         await pushToServer('push_license', { ...lic, features: newFeatures });
+    }
+    
     await refreshData();
   };
 
   const handleUpdateDetails = async (id: string, details: Partial<License>) => {
     await DB.updateLicenseDetails(id, details);
+    
+    // Sync update
+    const lic = await DB.findLicenseByKey(id) || licenses.find(l => l.id === id);
+    if (lic) {
+         await pushToServer('push_license', { ...lic, ...details });
+    }
+    
     await refreshData();
   };
 
   const handleRevoke = async (id: string) => {
     if (confirm('Sind Sie sicher, dass Sie diese Lizenz widerrufen möchten?')) {
       await DB.revokeLicense(id);
+      
+      const lic = licenses.find(l => l.id === id);
+      if (lic) {
+          await pushToServer('push_license', { ...lic, status: 'suspended' });
+      }
+
       await refreshData();
     }
   };
@@ -498,10 +551,11 @@ export default function App() {
              <button 
                 onClick={() => handleServerSync()}
                 disabled={isSyncing}
-                className={`w-full flex items-center gap-3 px-4 py-3 mt-2 rounded-lg text-sm font-medium transition-colors text-slate-400 hover:bg-slate-800 hover:text-white group`}
+                className={`w-full flex items-center gap-3 px-4 py-3 mt-2 rounded-lg text-sm font-medium transition-colors text-slate-400 hover:bg-slate-800 hover:text-white group relative`}
              >
                 <RefreshCw size={18} className={`group-hover:text-blue-400 ${isSyncing ? 'animate-spin text-blue-500' : ''}`} />
                 {isSyncing ? 'Synchronisiere...' : 'Server Sync'}
+                {syncError && <div className="absolute right-4 w-2 h-2 bg-red-500 rounded-full"></div>}
              </button>
           </div>
         </nav>
@@ -640,7 +694,15 @@ export default function App() {
                     <Inbox className="w-8 h-8 text-gray-400" />
                   </div>
                   <h3 className="text-lg font-medium text-gray-900">Alles erledigt!</h3>
-                  <p className="text-gray-500">Momentan liegen keine offenen Anfragen vor.</p>
+                  <p className="text-gray-500 mb-4">Momentan liegen keine offenen Anfragen vor.</p>
+                  
+                  <button 
+                    onClick={() => handleServerSync()}
+                    className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-2 rounded transition-colors"
+                  >
+                     <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} />
+                     {isSyncing ? 'Prüfe Server...' : 'Jetzt auf neue Anfragen prüfen'}
+                  </button>
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
@@ -674,8 +736,11 @@ export default function App() {
                       <div className="flex items-center gap-3">
                          <button 
                             onClick={async () => {
-                              await DB.deleteRequest(req.id);
-                              refreshData();
+                              if (confirm("Anfrage wirklich ablehnen?")) {
+                                await DB.deleteRequest(req.id);
+                                await pushToServer('delete_request', { id: req.id });
+                                refreshData();
+                              }
                             }}
                             className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded-lg"
                          >

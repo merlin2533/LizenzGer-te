@@ -180,32 +180,85 @@ function normalizeDomain($url) {
 $input = json_decode(file_get_contents('php://input'), true);
 $db = getDb($dbFile);
 
-// 1. SYNC ACTION (Admin)
-if (isset($input['action']) && $input['action'] === 'sync_admin') {
+// ADMIN ACTIONS
+if (isset($input['action'])) {
+    // Auth Check
     if (!isset($input['secret']) || $input['secret'] !== $adminSecret) {
         http_response_code(403);
         echo json_encode(['error' => 'Invalid Secret']);
         exit;
     }
 
-    $licenses = [];
-    $res = $db->query("SELECT * FROM licenses");
-    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
-        $row['features'] = json_decode($row['features'], true);
-        $licenses[] = $row;
+    if ($input['action'] === 'sync_admin') {
+        // PULL: Get all data
+        $licenses = [];
+        $res = $db->query("SELECT * FROM licenses");
+        while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+            $row['features'] = json_decode($row['features'], true);
+            $licenses[] = $row;
+        }
+
+        $requests = [];
+        $res = $db->query("SELECT * FROM requests");
+        while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+            $requests[] = $row;
+        }
+
+        echo json_encode(['status' => 'ok', 'licenses' => $licenses, 'requests' => $requests]);
+        exit;
     }
 
-    $requests = [];
-    $res = $db->query("SELECT * FROM requests");
-    while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
-        $requests[] = $row;
+    if ($input['action'] === 'push_license') {
+        // PUSH: Create/Update License
+        $lic = $input['license'];
+        $stmt = $db->prepare("INSERT OR REPLACE INTO licenses (id, organization, contactPerson, email, domain, key, validUntil, status, features, createdAt, phoneNumber, note) VALUES (:id, :org, :contact, :email, :domain, :key, :valid, :status, :features, :created, :phone, :note)");
+        $stmt->bindValue(':id', $lic['id']);
+        $stmt->bindValue(':org', $lic['organization']);
+        $stmt->bindValue(':contact', $lic['contactPerson']);
+        $stmt->bindValue(':email', $lic['email']);
+        $stmt->bindValue(':domain', $lic['domain']);
+        $stmt->bindValue(':key', $lic['key']);
+        $stmt->bindValue(':valid', $lic['validUntil']);
+        $stmt->bindValue(':status', $lic['status']);
+        $stmt->bindValue(':features', json_encode($lic['features']));
+        $stmt->bindValue(':created', $lic['createdAt']);
+        $stmt->bindValue(':phone', $lic['phoneNumber'] ?? null);
+        $stmt->bindValue(':note', $lic['note'] ?? null);
+        $stmt->execute();
+        echo json_encode(['status' => 'ok']);
+        exit;
     }
 
-    echo json_encode(['status' => 'ok', 'licenses' => $licenses, 'requests' => $requests]);
-    exit;
+    if ($input['action'] === 'delete_request') {
+        // PUSH: Delete Request (Approved or Rejected)
+        $id = $input['id'];
+        $stmt = $db->prepare("DELETE FROM requests WHERE id = :id");
+        $stmt->bindValue(':id', $id);
+        $stmt->execute();
+        echo json_encode(['status' => 'ok']);
+        exit;
+    }
+
+    if ($input['action'] === 'update_request') {
+        // PUSH: Update Request (e.g. customMessage)
+        $req = $input['request'];
+        $stmt = $db->prepare("INSERT OR REPLACE INTO requests (id, organization, contactPerson, email, requestedDomain, requestDate, note, phoneNumber, customMessage) VALUES (:id, :org, :contact, :email, :domain, :date, :note, :phone, :msg)");
+        $stmt->bindValue(':id', $req['id']);
+        $stmt->bindValue(':org', $req['organization']);
+        $stmt->bindValue(':contact', $req['contactPerson']);
+        $stmt->bindValue(':email', $req['email']);
+        $stmt->bindValue(':domain', $req['requestedDomain']);
+        $stmt->bindValue(':date', $req['requestDate']);
+        $stmt->bindValue(':note', $req['note'] ?? null);
+        $stmt->bindValue(':phone', $req['phoneNumber'] ?? null);
+        $stmt->bindValue(':msg', $req['customMessage'] ?? null);
+        $stmt->execute();
+        echo json_encode(['status' => 'ok']);
+        exit;
+    }
 }
 
-// 2. LICENSE CHECK / REGISTRATION
+// 2. LICENSE CHECK / REGISTRATION (PUBLIC)
 $origin = $_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '';
 $domain = normalizeDomain($origin);
 $providedKey = $input['key'] ?? null;
@@ -457,9 +510,9 @@ echo json_encode([
                           </p>
                       </div>
                       <div className="p-4 bg-purple-50 rounded-lg border border-purple-100">
-                          <h4 className="font-bold text-purple-900 text-sm mb-1">Admin Sync</h4>
+                          <h4 className="font-bold text-purple-900 text-sm mb-1">Admin Sync (2-Wege)</h4>
                           <p className="text-xs text-purple-800">
-                              Ermöglicht den Datenabgleich zwischen Server und dieser App (Passwort geschützt).
+                              Anfragen werden geladen, Genehmigungen werden direkt auf den Server gepusht.
                           </p>
                       </div>
                        <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">

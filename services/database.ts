@@ -85,7 +85,11 @@ const ensureTablesExist = () => {
         // Check if settings need default
         const setRes = db.exec("SELECT count(*) as count FROM settings");
         if (setRes.length > 0 && setRes[0].values[0][0] === 0) {
-             db.run(`INSERT OR IGNORE INTO settings VALUES ('apiUrl', 'https://api.geratewart-manager.de/v1/license/verify');`);
+             db.run(`INSERT OR IGNORE INTO settings VALUES ('apiUrl', 'https://lizenz.straub-it.de/index.php');`);
+             db.run(`INSERT OR IGNORE INTO settings VALUES ('adminSecret', '123456');`);
+        } else {
+             // Ensure defaults exist even if settings table exists
+             db.run(`INSERT OR IGNORE INTO settings VALUES ('adminSecret', '123456');`);
         }
 
     } catch (e) {
