@@ -59,11 +59,13 @@ export default function App() {
     const now = new Date();
 
     if (!key) {
-      // SCENARIO 1: No Key provided -> Auto Registration
+      // SCENARIO 1: No Key provided (Auto Check)
+      
+      // 1. Check if License exists for this domain
       const existingLicense = await DB.findLicenseByDomain(sourceUrl);
       
       if (existingLicense) {
-         // Even if requesting without key, if we know the domain, we verify validity
+         // License found! Check validity
          const validUntilDate = new Date(existingLicense.validUntil);
          const isExpired = validUntilDate < now;
          const daysRemaining = Math.ceil((validUntilDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
@@ -72,41 +74,45 @@ export default function App() {
          responseBody = {
            status: isExpired ? 'expired' : 'active',
            message: isExpired ? 'License expired. Please renew.' : 'License found for this domain.',
-           key: existingLicense.key, // In a real scenario, we might obscure this if not authenticated
+           key: existingLicense.key, 
            validUntil: existingLicense.validUntil,
            daysRemaining: daysRemaining,
            modules: isExpired ? [] : Object.entries(existingLicense.features).filter(([_, v]) => v).map(([k]) => k),
            features: isExpired ? {} : existingLicense.features
          };
       } else {
-        // Create new Auto-License
-        const newKey = `AUTO-${Math.random().toString(36).substr(2, 4).toUpperCase()}-${Date.now().toString().substr(-4)}`;
-        const validUntilDate = new Date(new Date().setMonth(new Date().getMonth() + 1)); // 1 Month Trial
-        
-        const newLicense: License = {
-          id: `auto_${Date.now()}`,
-          organization: 'Unbekannt (Auto-Registrierung)',
-          contactPerson: 'System',
-          email: `admin@${sourceUrl}`,
-          domain: sourceUrl,
-          key: newKey,
-          validUntil: validUntilDate.toISOString(), 
-          status: 'active',
-          features: DEFAULT_FEATURES,
-          createdAt: new Date().toISOString()
-        };
-        
-        await DB.createLicense(newLicense);
-        responseStatus = 201;
-        responseBody = {
-          status: 'created',
-          message: 'Trial license automatically generated.',
-          key: newKey,
-          validUntil: newLicense.validUntil,
-          daysRemaining: 30,
-          modules: Object.entries(newLicense.features).filter(([_, v]) => v).map(([k]) => k),
-          features: newLicense.features
-        };
+        // 2. No License found -> Check if Request exists
+        const allRequests = await DB.getRequests();
+        const existingReq = allRequests.find(r => r.requestedDomain.toLowerCase() === sourceUrl.toLowerCase());
+
+        if (existingReq) {
+             responseStatus = 200; // Success, but pending
+             responseBody = {
+                 status: 'pending',
+                 message: 'Die Registrierungsanfrage für diese Domain wartet auf Freigabe.',
+                 requestId: existingReq.id
+             };
+        } else {
+             // 3. No License & No Request -> Create Request
+             const newReq: LicenseRequest = {
+                 id: `req_auto_${Date.now()}`,
+                 organization: 'Unbekannt (Auto-Request)',
+                 contactPerson: 'System Admin',
+                 email: `admin@${sourceUrl}`,
+                 requestedDomain: sourceUrl,
+                 requestDate: new Date().toISOString(),
+                 note: 'Automatische Anfrage durch Installation'
+             };
+             
+             await DB.createRequest(newReq);
+             
+             responseStatus = 201;
+             responseBody = {
+                 status: 'requested',
+                 message: 'Anfrage erfolgreich erstellt. Bitte kontaktieren Sie den Support zur Freischaltung.',
+                 requestId: newReq.id
+             };
+        }
       }
 
     } else {

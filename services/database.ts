@@ -360,6 +360,21 @@ export const getRequests = async (): Promise<LicenseRequest[]> => {
   })) as LicenseRequest[];
 };
 
+export const createRequest = async (request: LicenseRequest) => {
+  if (!db) await initDatabase();
+  db.run(`INSERT INTO requests (id, organization, contactPerson, email, requestedDomain, requestDate, note, phoneNumber) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+    request.id,
+    request.organization,
+    request.contactPerson,
+    request.email,
+    request.requestedDomain,
+    request.requestDate,
+    request.note || null,
+    request.phoneNumber || null
+  ]);
+  saveDatabase();
+};
+
 export const deleteRequest = async (id: string) => {
   if (!db) await initDatabase();
   db.run("DELETE FROM requests WHERE id = ?", [id]);
