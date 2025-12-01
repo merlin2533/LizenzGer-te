@@ -61,7 +61,14 @@ const ensureTablesExist = () => {
         try {
             db.run("ALTER TABLE licenses ADD COLUMN phoneNumber TEXT");
         } catch (e) {
-            // Column likely exists or other error we can ignore for now in this context
+            // Column likely exists
+        }
+
+        // MIGRATION: Add note column if it doesn't exist
+        try {
+            db.run("ALTER TABLE licenses ADD COLUMN note TEXT");
+        } catch (e) {
+            // Column likely exists
         }
         
         try {
@@ -102,7 +109,8 @@ const seedDatabase = () => {
       status TEXT,
       features TEXT,
       createdAt TEXT,
-      phoneNumber TEXT
+      phoneNumber TEXT,
+      note TEXT
     );
   `);
 
@@ -137,7 +145,7 @@ const seedDatabase = () => {
   // Insert Seed Data
   const initialFeatures = JSON.stringify({ ...DEFAULT_FEATURES, respiratory: true, vehicles: true, reports: true });
   db.run(`
-    INSERT INTO licenses (id, organization, contactPerson, email, domain, key, validUntil, status, features, createdAt, phoneNumber) VALUES (
+    INSERT INTO licenses (id, organization, contactPerson, email, domain, key, validUntil, status, features, createdAt, phoneNumber, note) VALUES (
       'lic_1', 
       'Berufsfeuerwehr Großstadt', 
       'Leitstelle', 
@@ -148,7 +156,8 @@ const seedDatabase = () => {
       'active', 
       '${initialFeatures}', 
       '2024-01-15',
-      '+49 30 112233'
+      '+49 30 112233',
+      'VIP Kunde - Priority Support'
     );
   `);
 
@@ -271,7 +280,8 @@ export const getLicenses = async (): Promise<License[]> => {
       validUntil: row[columns.indexOf('validUntil')],
       status: row[columns.indexOf('status')],
       features,
-      createdAt: row[columns.indexOf('createdAt')]
+      createdAt: row[columns.indexOf('createdAt')],
+      note: columns.includes('note') ? row[columns.indexOf('note')] : undefined
     } as License;
   });
 };
@@ -279,8 +289,7 @@ export const getLicenses = async (): Promise<License[]> => {
 export const createLicense = async (license: License) => {
   if (!db) await initDatabase();
   
-  // Ensure we cover the phoneNumber column
-  db.run(`INSERT INTO licenses (id, organization, contactPerson, email, domain, key, validUntil, status, features, createdAt, phoneNumber) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+  db.run(`INSERT INTO licenses (id, organization, contactPerson, email, domain, key, validUntil, status, features, createdAt, phoneNumber, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
     license.id,
     license.organization,
     license.contactPerson,
@@ -291,7 +300,8 @@ export const createLicense = async (license: License) => {
     license.status,
     JSON.stringify(license.features),
     license.createdAt,
-    license.phoneNumber || null
+    license.phoneNumber || null,
+    license.note || null
   ]);
   saveDatabase();
 };
@@ -299,6 +309,29 @@ export const createLicense = async (license: License) => {
 export const updateLicenseFeatures = async (id: string, features: FeatureSet) => {
   if (!db) await initDatabase();
   db.run("UPDATE licenses SET features = ? WHERE id = ?", [JSON.stringify(features), id]);
+  saveDatabase();
+};
+
+export const updateLicenseDetails = async (id: string, details: Partial<License>) => {
+  if (!db) await initDatabase();
+  // We explicitly update editable columns
+  db.run(`UPDATE licenses SET 
+    organization = ?, 
+    contactPerson = ?, 
+    email = ?, 
+    phoneNumber = ?, 
+    note = ?,
+    validUntil = ?
+    WHERE id = ?`, 
+  [
+    details.organization,
+    details.contactPerson,
+    details.email,
+    details.phoneNumber || null,
+    details.note || null,
+    details.validUntil,
+    id
+  ]);
   saveDatabase();
 };
 
@@ -386,7 +419,8 @@ export const findLicenseByKey = async (key: string): Promise<License | null> => 
     validUntil: row[columns.indexOf('validUntil')],
     status: row[columns.indexOf('status')],
     features: JSON.parse(row[columns.indexOf('features')]),
-    createdAt: row[columns.indexOf('createdAt')]
+    createdAt: row[columns.indexOf('createdAt')],
+    note: columns.includes('note') ? row[columns.indexOf('note')] : undefined
   };
 };
 
@@ -410,7 +444,8 @@ export const findLicenseByDomain = async (domain: string): Promise<License | nul
     validUntil: row[columns.indexOf('validUntil')],
     status: row[columns.indexOf('status')],
     features: JSON.parse(row[columns.indexOf('features')]),
-    createdAt: row[columns.indexOf('createdAt')]
+    createdAt: row[columns.indexOf('createdAt')],
+    note: columns.includes('note') ? row[columns.indexOf('note')] : undefined
   };
 };
 

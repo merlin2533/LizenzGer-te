@@ -24,6 +24,7 @@ export interface License {
   status: LicenseStatus;
   features: FeatureSet;
   createdAt: string;
+  note?: string; // New field for comments
 }
 
 export interface LicenseRequest {

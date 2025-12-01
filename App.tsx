@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { License, LicenseRequest, FeatureSet, DEFAULT_FEATURES, ApiLogEntry, ModuleDefinition } from './types';
 import { LicenseCard } from './components/LicenseCard';
 import { RequestModal } from './components/RequestModal';
@@ -17,7 +17,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [apiLogs, setApiLogs] = useState<ApiLogEntry[]>([]);
   const [dbReady, setDbReady] = useState(false);
-  const [apiUrl, setApiUrl] = useState("https://api.geratewart-manager.de/v1/license/verify");
+  const [apiUrl, setApiUrl] = useState("https://lizenz.straub-it.de/v1/license/verify");
 
   // Initialize DB and load data
   useEffect(() => {
@@ -49,9 +49,9 @@ export default function App() {
   };
 
   // Simulate API Logic against SQLite
-  const handleApiRequest = async (sourceUrl: string, key?: string): Promise<ApiLogEntry> => {
-    // Artificial Delay to simulate network
-    await new Promise(resolve => setTimeout(resolve, 600));
+  const handleApiRequest = useCallback(async (sourceUrl: string, key?: string): Promise<ApiLogEntry> => {
+    // Artificial Delay to simulate network (only if direct call)
+    // await new Promise(resolve => setTimeout(resolve, 600));
 
     let responseStatus: 200 | 201 | 401 | 403 = 200;
     let responseBody: any = {};
@@ -174,7 +174,63 @@ export default function App() {
     await DB.addLog(newLog);
     await refreshData();
     return newLog;
-  };
+  }, []);
+
+  // ------------------------------------------------------------
+  // INTERCEPTOR: Monkey Patch window.fetch to simulate backend
+  // ------------------------------------------------------------
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    
+    // Override fetch
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        
+        // Check if the request matches our configured API URL
+        if (urlStr === apiUrl && init?.method === 'POST') {
+            console.log(`[API SIMULATOR] Intercepting fetch to ${urlStr}`);
+            
+            try {
+                // Parse Body
+                let body: any = {};
+                if (init.body) {
+                    body = JSON.parse(init.body as string);
+                }
+
+                // Determine Headers (Origin is mostly protected in browsers, check X-Source-Origin or fallback)
+                // Note: Standard 'Origin' header is usually immutable in browser fetch.
+                // We use a custom logic: if running in simulator, we trust the 'Origin' header provided in the init options
+                // (even though browser might ignore it, we can read it here before it goes to network)
+                const headers = init.headers as Record<string, string>;
+                const origin = headers?.['Origin'] || headers?.['origin'] || window.location.hostname;
+                
+                const result = await handleApiRequest(origin, body.key);
+
+                // Return a fake Response object
+                return new Response(result.responseBody, {
+                    status: result.responseStatus,
+                    statusText: result.responseStatus === 200 ? 'OK' : 'Error',
+                    headers: new Headers({
+                        'Content-Type': 'application/json',
+                        'X-Simulated-By': 'FFw-License-Manager-App'
+                    })
+                });
+
+            } catch (e) {
+                console.error("Simulation Error", e);
+                return new Response(JSON.stringify({ error: 'Simulation Failed' }), { status: 500 });
+            }
+        }
+
+        return originalFetch(input, init);
+    };
+
+    return () => {
+        // Restore original fetch on cleanup
+        window.fetch = originalFetch;
+    };
+  }, [apiUrl, handleApiRequest]);
+
 
   const handleApprove = async (
     request: LicenseRequest, 
@@ -194,7 +250,8 @@ export default function App() {
       validUntil,
       status: 'active',
       features,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      note: request.note // Transfer note from request to license initially
     };
 
     await DB.createLicense(newLicense);
@@ -207,6 +264,11 @@ export default function App() {
 
   const handleUpdateFeatures = async (id: string, newFeatures: FeatureSet) => {
     await DB.updateLicenseFeatures(id, newFeatures);
+    await refreshData();
+  };
+
+  const handleUpdateDetails = async (id: string, details: Partial<License>) => {
+    await DB.updateLicenseDetails(id, details);
     await refreshData();
   };
 
@@ -352,6 +414,7 @@ export default function App() {
                     key={license.id} 
                     license={license} 
                     onUpdateFeatures={handleUpdateFeatures}
+                    onUpdateDetails={handleUpdateDetails}
                     onRevoke={handleRevoke}
                     availableModules={modules}
                   />
