@@ -67,20 +67,18 @@ fetch('${apiUrl}', {
 
   const phpBackendCode = `<?php
 /*
- * SERVER BACKEND IMPLEMENTATION
- * Speichern Sie dies als index.php (oder entsprechend Ihrer URL Struktur)
- * auf Ihrem Webserver.
+ * SERVER BACKEND IMPLEMENTATION - index.php
  * 
- * AUTOMATISCHE INITIALISIERUNG:
- * Das Skript erstellt automatisch eine leere 'ffw_licenses.sqlite', 
- * falls diese noch nicht existiert. Sie müssen die Datei nicht manuell anlegen.
+ * FIX "Datenbank nicht gefunden":
+ * Dieses Skript erstellt automatisch eine 'ffw_licenses.sqlite', 
+ * falls diese noch nicht existiert.
  * 
- * Um Lizenzen einzuspielen, laden Sie später die DB aus den App-Einstellungen
- * herunter und überschreiben Sie die Datei auf dem Server.
+ * WICHTIG: Der Ordner, in dem dieses Skript liegt, benötigt Schreibrechte 
+ * (z.B. chmod 775 oder www-data owner), damit PHP die Datei anlegen kann.
  */
 
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *'); // In Prod einschränken!
+header('Access-Control-Allow-Origin: *'); // In Prod auf Ihre Domains einschränken!
 header('Access-Control-Allow-Methods: POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Origin');
 
@@ -124,7 +122,7 @@ try {
     $now = new DateTime();
     
     if (!$key) {
-        // --- SCENARIO 1: AUTO REGISTRATION ---
+        // --- SCENARIO 1: AUTO REGISTRATION / CHECK ---
         // Check Existing
         $stmt = $db->prepare('SELECT * FROM licenses WHERE lower(domain) = lower(:dom)');
         $stmt->bindValue(':dom', $domain, SQLITE3_TEXT);
@@ -139,12 +137,15 @@ try {
                  'status' => $expired ? 'expired' : 'active',
                  'key' => $res['key'],
                  'validUntil' => $res['validUntil'],
-                 'modules' => $expired ? [] : array_keys(array_filter($features)),
+                 'modules' => $expired ? [] : array_keys(array_filter($features ?: [])),
                  'features' => $expired ? new stdClass() : $features
              ]);
         } else {
-             // Hier könnte man Auto-Create Logic einfügen
-             echo json_encode(['status' => 'pending', 'message' => 'Bitte Key angeben oder Anfrage über Portal stellen.']);
+             // Noch keine Lizenz für diese Domain
+             echo json_encode([
+                'status' => 'pending', 
+                'message' => 'Keine Lizenz gefunden. Bitte Key angeben oder Datenbank hochladen.'
+             ]);
         }
     } else {
         // --- SCENARIO 2: VERIFICATION ---
@@ -155,9 +156,9 @@ try {
         if (!$res) {
             http_response_code(403);
             echo json_encode(['error' => 'Invalid Key']);
-        } elseif (strtolower($res['domain']) !== strtolower($domain)) {
-            // Strict Domain Check disabled for test
-            // Optional: http_response_code(403);
+        } else {
+            // Optional: Strict Domain Check
+            // if (strtolower($res['domain']) !== strtolower($domain)) { ... }
              
             $validUntil = new DateTime($res['validUntil']);
             $expired = $validUntil < $now;
@@ -166,17 +167,7 @@ try {
             echo json_encode([
                 'status' => $expired ? 'expired' : 'active',
                 'validUntil' => $res['validUntil'],
-                'modules' => $expired ? [] : array_keys(array_filter($features))
-            ]);
-        } else {
-            $validUntil = new DateTime($res['validUntil']);
-            $expired = $validUntil < $now;
-            $features = json_decode($res['features'], true);
-            
-            echo json_encode([
-                'status' => $expired ? 'expired' : 'active',
-                'validUntil' => $res['validUntil'],
-                'modules' => $expired ? [] : array_keys(array_filter($features))
+                'modules' => $expired ? [] : array_keys(array_filter($features ?: []))
             ]);
         }
     }
@@ -302,13 +293,14 @@ try {
                 <div className="bg-green-50 border border-green-200 rounded p-3 mb-4">
                      <div className="flex items-center gap-2 text-green-800 font-bold text-xs mb-1">
                         <AlertTriangle size={14} />
-                        <span>Problembehebung "Datenbank nicht gefunden"</span>
+                        <span>Fehlerbehebung: "Datenbank nicht gefunden"</span>
                      </div>
                      <p className="text-xs text-green-700 leading-relaxed">
-                        Der Code unten wurde aktualisiert. Er erstellt nun <strong>automatisch</strong> eine leere Datenbank, falls keine existiert. 
+                        Das Skript unten wurde aktualisiert. Es prüft nicht mehr auf Existenz der Datei, sondern 
+                        erstellt sie automatisch mittels <code>CREATE TABLE IF NOT EXISTS</code>.
                      </p>
-                     <p className="text-xs text-green-700 mt-2">
-                        Kopieren Sie den neuen Code in Ihre <code>index.php</code>, um den Fehler zu beheben.
+                     <p className="text-xs text-green-700 mt-2 font-bold">
+                        Bitte kopieren Sie den neuen Code und überschreiben Sie Ihre <code>index.php</code>.
                      </p>
                 </div>
 
