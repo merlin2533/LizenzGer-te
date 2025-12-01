@@ -3,9 +3,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { License, LicenseRequest, FeatureSet, DEFAULT_FEATURES, ApiLogEntry, ModuleDefinition } from './types';
 import { LicenseCard } from './components/LicenseCard';
 import { RequestModal } from './components/RequestModal';
+import { CreateLicenseModal } from './components/CreateLicenseModal';
 import { ApiConsole } from './components/ApiConsole';
 import { SettingsView } from './components/SettingsView';
-import { LayoutDashboard, Inbox, KeyRound, Search, Flame, ServerCog, Activity, Database, Download, Settings } from 'lucide-react';
+import { LayoutDashboard, Inbox, KeyRound, Search, Flame, ServerCog, Activity, Database, Download, Settings, Plus, UserPlus } from 'lucide-react';
 import * as DB from './services/database';
 import { ICON_REGISTRY } from './config';
 
@@ -14,7 +15,11 @@ export default function App() {
   const [requests, setRequests] = useState<LicenseRequest[]>([]);
   const [licenses, setLicenses] = useState<License[]>([]);
   const [modules, setModules] = useState<ModuleDefinition[]>([]);
+  
+  // Modals State
   const [selectedRequest, setSelectedRequest] = useState<LicenseRequest | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [apiLogs, setApiLogs] = useState<ApiLogEntry[]>([]);
   const [dbReady, setDbReady] = useState(false);
@@ -266,6 +271,33 @@ export default function App() {
     await refreshData();
   };
 
+  const handleManualCreate = async (
+    details: { organization: string, contactPerson: string, email: string, phoneNumber: string, domain: string, note: string },
+    features: FeatureSet, 
+    validUntil: string,
+    emailContent: string
+  ) => {
+    const newLicense: License = {
+        id: `lic_man_${Date.now()}`,
+        organization: details.organization,
+        contactPerson: details.contactPerson,
+        email: details.email,
+        phoneNumber: details.phoneNumber,
+        domain: details.domain,
+        key: `FFW-${Math.random().toString(36).substr(2, 4).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
+        validUntil,
+        status: 'active',
+        features,
+        createdAt: new Date().toISOString(),
+        note: details.note
+    };
+
+    await DB.createLicense(newLicense);
+    setShowCreateModal(false);
+    setActiveTab('dashboard');
+    await refreshData();
+  };
+
   const handleUpdateFeatures = async (id: string, newFeatures: FeatureSet) => {
     await DB.updateLicenseFeatures(id, newFeatures);
     await refreshData();
@@ -370,13 +402,19 @@ export default function App() {
                 <h2 className="text-2xl font-bold text-gray-900">Lizenz Übersicht</h2>
                 <p className="text-gray-500">Verwalten Sie aktive Installationen und Module.</p>
               </div>
-              <div className="flex gap-2">
-                <div className="relative">
+              <div className="flex gap-2 w-full md:w-auto">
+                 <button 
+                  onClick={() => setShowCreateModal(true)}
+                  className="px-4 py-2 bg-slate-900 text-white rounded-lg flex items-center gap-2 text-sm font-bold shadow-sm hover:bg-slate-800 whitespace-nowrap"
+                 >
+                    <Plus size={16} /> Neue Lizenz
+                 </button>
+                <div className="relative w-full md:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input 
                     type="text" 
-                    placeholder="Suche nach Domain, Org..." 
-                    className="pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 w-full md:w-64"
+                    placeholder="Suche..." 
+                    className="pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 w-full"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
@@ -468,10 +506,20 @@ export default function App() {
                         <div className="flex items-center gap-3 mb-1">
                           <h3 className="text-lg font-bold text-gray-900">{req.organization}</h3>
                           <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">Neu</span>
+                          {req.id.includes('auto') && (
+                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-mono border border-gray-200">
+                                  Auto-Reg
+                              </span>
+                          )}
                         </div>
                         <p className="text-sm text-gray-600 mb-2">{req.contactPerson} &lt;{req.email}&gt;</p>
-                        <div className="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-2 py-1 rounded">
-                          {req.requestedDomain}
+                        <div className="flex items-center gap-2">
+                             <div className="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-2 py-1 rounded border border-gray-200">
+                                Domain: {req.requestedDomain}
+                             </div>
+                             <div className="text-[10px] text-gray-400 font-mono">
+                                ID: {req.id}
+                             </div>
                         </div>
                         {req.note && (
                            <div className="mt-3 text-sm text-gray-600 italic border-l-2 border-blue-200 pl-3">
@@ -494,7 +542,7 @@ export default function App() {
                             className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm shadow-red-200 flex items-center gap-2"
                          >
                            <KeyRound size={16} />
-                           Bearbeiten & Freigeben
+                           Freigeben
                          </button>
                       </div>
                     </div>
@@ -524,6 +572,14 @@ export default function App() {
           onApprove={handleApprove}
           availableModules={modules}
         />
+      )}
+
+      {showCreateModal && (
+          <CreateLicenseModal
+            onClose={() => setShowCreateModal(false)}
+            onSave={handleManualCreate}
+            availableModules={modules}
+          />
       )}
     </div>
   );

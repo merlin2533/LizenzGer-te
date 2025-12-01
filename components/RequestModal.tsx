@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { LicenseRequest, FeatureSet, DEFAULT_FEATURES, ModuleDefinition } from '../types';
 import { generateWelcomeEmail, analyzeRequest } from '../services/geminiService';
-import { Loader2, Wand2, Mail, Building2, User, Phone, Globe, MessageSquare } from 'lucide-react';
+import { Loader2, Wand2, Mail, Building2, User, Phone, Globe, MessageSquare, AlertTriangle } from 'lucide-react';
 
 interface RequestModalProps {
   request: LicenseRequest;
@@ -72,65 +72,85 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
     );
   };
 
+  const isUnknown = org.includes('Unbekannt');
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-100">
-          <h2 className="text-xl font-bold text-gray-900">Anfrage bearbeiten</h2>
-          <p className="text-gray-500 text-sm mt-1">Lizenzdetails vervollständigen und genehmigen</p>
+        <div className="p-6 border-b border-gray-100 flex justify-between items-start">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Anfrage bearbeiten & freigeben</h2>
+            <div className="flex items-center gap-2 mt-1">
+                 <p className="text-gray-500 text-sm">Request ID:</p>
+                 <code className="text-xs bg-gray-100 px-2 py-0.5 rounded font-mono text-gray-700">{request.id}</code>
+            </div>
+          </div>
         </div>
 
         <div className="p-6 space-y-6">
           
-          {/* Editable Contact Section */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-             <div className="space-y-3">
-                <div>
-                   <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
-                      <Building2 size={12} /> Organisation
-                   </label>
-                   <input 
-                      type="text" 
-                      value={org}
-                      onChange={(e) => setOrg(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
-                   />
+          {/* Stammdaten Section */}
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 relative overflow-hidden">
+             {isUnknown && (
+                <div className="absolute top-0 right-0 p-2">
+                    <div className="flex items-center gap-1 bg-yellow-100 text-yellow-800 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wide">
+                        <AlertTriangle size={10} /> Bitte Stammdaten ergänzen
+                    </div>
                 </div>
-                <div>
-                   <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
-                      <User size={12} /> Ansprechpartner
-                   </label>
-                   <input 
-                      type="text" 
-                      value={contact}
-                      onChange={(e) => setContact(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
-                   />
+             )}
+             <h3 className="text-sm font-bold text-gray-900 uppercase mb-4 tracking-wider flex items-center gap-2">
+                 <Building2 size={16} className="text-red-600" /> Stammdaten
+             </h3>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                    <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                        Organisation
+                    </label>
+                    <input 
+                        type="text" 
+                        value={org}
+                        onChange={(e) => setOrg(e.target.value)}
+                        className={`w-full p-2 border rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none ${isUnknown ? 'border-yellow-300 bg-yellow-50' : 'border-gray-300'}`}
+                    />
+                    </div>
+                    <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                        <User size={12} /> Ansprechpartner
+                    </label>
+                    <input 
+                        type="text" 
+                        value={contact}
+                        onChange={(e) => setContact(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
+                    />
+                    </div>
                 </div>
-             </div>
-             <div className="space-y-3">
-                <div>
-                   <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
-                      <Mail size={12} /> Email
-                   </label>
-                   <input 
-                      type="email" 
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
-                   />
-                </div>
-                <div>
-                   <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
-                      <Phone size={12} /> Telefon / Handy
-                   </label>
-                   <input 
-                      type="text" 
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+49 ..."
-                      className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
-                   />
+                <div className="space-y-3">
+                    <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                        <Mail size={12} /> Email
+                    </label>
+                    <input 
+                        type="email" 
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
+                    />
+                    </div>
+                    <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                        <Phone size={12} /> Telefon / Handy
+                    </label>
+                    <input 
+                        type="text" 
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="+49 ..."
+                        className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
+                    />
+                    </div>
                 </div>
              </div>
           </div>
@@ -205,7 +225,7 @@ export const RequestModal: React.FC<RequestModalProps> = ({ request, onClose, on
                     <span className="text-xs font-bold uppercase">Email Entwurf</span>
                   </div>
                   <textarea 
-                    className="w-full bg-transparent text-sm text-gray-700 min-h-[150px] focus:outline-none resize-none"
+                    className="w-full bg-transparent text-sm text-gray-700 min-h-[150px] focus:outline-none resize-none font-mono"
                     value={emailContent}
                     onChange={(e) => setEmailContent(e.target.value)}
                   />
