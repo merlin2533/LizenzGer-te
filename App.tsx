@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { License, LicenseRequest, FeatureSet, DEFAULT_FEATURES, ApiLogEntry, ModuleDefinition } from './types';
 import { LicenseCard } from './components/LicenseCard';
@@ -6,7 +5,7 @@ import { RequestModal } from './components/RequestModal';
 import { CreateLicenseModal } from './components/CreateLicenseModal';
 import { ApiConsole } from './components/ApiConsole';
 import { SettingsView } from './components/SettingsView';
-import { LayoutDashboard, Inbox, KeyRound, Search, Flame, ServerCog, Activity, Database, Download, Settings, Plus, UserPlus } from 'lucide-react';
+import { LayoutDashboard, Inbox, KeyRound, Search, Flame, ServerCog, Activity, Database, Download, Settings, Plus, UserPlus, Filter } from 'lucide-react';
 import * as DB from './services/database';
 import { ICON_REGISTRY } from './config';
 
@@ -21,6 +20,8 @@ export default function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'expired' | 'suspended'>('all');
+  
   const [apiLogs, setApiLogs] = useState<ApiLogEntry[]>([]);
   const [dbReady, setDbReady] = useState(false);
   const [apiUrl, setApiUrl] = useState("https://lizenz.straub-it.de/v1/license/verify");
@@ -315,11 +316,25 @@ export default function App() {
     }
   };
 
-  const filteredLicenses = licenses.filter(l => 
-    l.organization.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    l.key.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    l.domain.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredLicenses = licenses.filter(l => {
+    const matchesSearch = l.organization.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          l.key.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          l.domain.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    if (!matchesSearch) return false;
+
+    // Status Filter Logic
+    const now = new Date();
+    const validUntil = new Date(l.validUntil);
+    const isExpired = validUntil < now;
+
+    if (filterStatus === 'all') return true;
+    if (filterStatus === 'suspended') return l.status === 'suspended';
+    if (filterStatus === 'expired') return isExpired; // Expired regardless of 'active' status flag
+    if (filterStatus === 'active') return l.status === 'active' && !isExpired;
+    
+    return true;
+  });
 
   if (!dbReady) {
     return (
@@ -397,19 +412,35 @@ export default function App() {
         
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">Lizenz Übersicht</h2>
                 <p className="text-gray-500">Verwalten Sie aktive Installationen und Module.</p>
               </div>
-              <div className="flex gap-2 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row gap-3 w-full xl:w-auto">
                  <button 
                   onClick={() => setShowCreateModal(true)}
-                  className="px-4 py-2 bg-slate-900 text-white rounded-lg flex items-center gap-2 text-sm font-bold shadow-sm hover:bg-slate-800 whitespace-nowrap"
+                  className="px-4 py-2 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 text-sm font-bold shadow-sm hover:bg-slate-800 whitespace-nowrap order-1 md:order-3"
                  >
                     <Plus size={16} /> Neue Lizenz
                  </button>
-                <div className="relative w-full md:w-64">
+                 
+                {/* Status Filter */}
+                <div className="relative w-full md:w-48 order-2">
+                    <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
+                    <select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value as any)}
+                        className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm bg-white appearance-none cursor-pointer hover:bg-gray-50"
+                    >
+                        <option value="all">Alle Status</option>
+                        <option value="active">Nur Aktive</option>
+                        <option value="expired">Nur Abgelaufene</option>
+                        <option value="suspended">Nur Gesperrte</option>
+                    </select>
+                </div>
+
+                <div className="relative w-full md:w-64 order-3 md:order-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input 
                     type="text" 
@@ -464,7 +495,7 @@ export default function App() {
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               {filteredLicenses.length === 0 ? (
                 <div className="col-span-full py-12 text-center text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
-                  Keine Lizenzen gefunden.
+                  {licenses.length === 0 ? "Keine Lizenzen gefunden." : "Keine Lizenzen mit den aktuellen Filtereinstellungen gefunden."}
                 </div>
               ) : (
                 filteredLicenses.map(license => (
