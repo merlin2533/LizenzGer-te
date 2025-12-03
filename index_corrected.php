@@ -38,15 +38,99 @@ $moduleConfig = [
 ];
 
 // --- HELPER ---
+
+// Polyfill for SQLite3 class using PDO if native extension is missing
+if (!defined('SQLITE3_ASSOC')) define('SQLITE3_ASSOC', 1);
+if (!defined('SQLITE3_NUM')) define('SQLITE3_NUM', 2);
+if (!defined('SQLITE3_BOTH')) define('SQLITE3_BOTH', 3);
+if (!defined('SQLITE3_INTEGER')) define('SQLITE3_INTEGER', 1);
+if (!defined('SQLITE3_FLOAT')) define('SQLITE3_FLOAT', 2);
+if (!defined('SQLITE3_TEXT')) define('SQLITE3_TEXT', 3);
+if (!defined('SQLITE3_BLOB')) define('SQLITE3_BLOB', 4);
+if (!defined('SQLITE3_NULL')) define('SQLITE3_NULL', 5);
+
+class CompatSQLite3 {
+    private $pdo;
+    
+    public function __construct($filename) {
+        if (!class_exists('PDO') || !in_array('sqlite', PDO::getAvailableDrivers())) {
+            throw new Exception("SQLite3 extension AND PDO_SQLITE are missing. Please enable one of them.");
+        }
+        $this->pdo = new PDO('sqlite:' . $filename);
+        $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    }
+    
+    public function busyTimeout($msecs) {
+        $this->pdo->setAttribute(PDO::ATTR_TIMEOUT, $msecs / 1000);
+    }
+    
+    public function exec($query) {
+        return $this->pdo->exec($query);
+    }
+    
+    public function query($query) {
+        $stmt = $this->pdo->query($query);
+        return new CompatSQLite3Result($stmt);
+    }
+    
+    public function prepare($query) {
+        $stmt = $this->pdo->prepare($query);
+        return new CompatSQLite3Stmt($stmt);
+    }
+    
+    public function lastErrorMsg() {
+        return implode(" ", $this->pdo->errorInfo());
+    }
+}
+
+class CompatSQLite3Result {
+    private $stmt;
+    
+    public function __construct($stmt) {
+        $this->stmt = $stmt;
+    }
+    
+    public function fetchArray($mode = SQLITE3_BOTH) {
+        if (!$this->stmt) return false;
+        $pdoMode = PDO::FETCH_BOTH;
+        if ($mode === SQLITE3_ASSOC) $pdoMode = PDO::FETCH_ASSOC;
+        if ($mode === SQLITE3_NUM) $pdoMode = PDO::FETCH_NUM;
+        
+        return $this->stmt->fetch($pdoMode);
+    }
+}
+
+class CompatSQLite3Stmt {
+    private $stmt;
+    
+    public function __construct($stmt) {
+        $this->stmt = $stmt;
+    }
+    
+    public function bindValue($param, $value, $type = SQLITE3_TEXT) {
+        return $this->stmt->bindValue($param, $value);
+    }
+    
+    public function execute() {
+        $this->stmt->execute();
+        return new CompatSQLite3Result($this->stmt);
+    }
+}
+
 function getDb($file) {
     $init = !file_exists($file);
     try {
-        $db = new SQLite3($file);
+        if (class_exists('SQLite3')) {
+            $db = new SQLite3($file);
+        } else {
+            $db = new CompatSQLite3($file);
+        }
+        
         $db->busyTimeout(5000);
         if ($init) { initDb($db); }
         checkMigrations($db);
         return $db;
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         http_response_code(500);
         echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
         exit;
@@ -165,7 +249,7 @@ function logAccess($db, $sourceUrl, $key, $status, $body) {
 $input = json_decode(file_get_contents('php://input'), true);
 $db = getDb($dbFile);
 
-}
+// REMOVED STRAY BRACE
 
 // ADMIN ACTIONS (Authentication required)
 if (isset($input['action'])) {
