@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Globe, Key, Code, ArrowRight, Copy, Server, ServerCog, AlertTriangle, FileJson, Terminal, Download, FileCode, CheckCircle2 } from 'lucide-react';
 import { ApiLogEntry } from '../types';
@@ -106,6 +107,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
 
+// --- MODULE DEFINITIONS ---
+// Definition der Module für die detaillierte JSON-Antwort
+$moduleConfig = [
+    'inventory' => [
+        'title' => 'Grundinventar', 
+        'icon' => 'Server', 
+        'desc' => 'Verwaltung von Geräten und Lagerorten'
+    ],
+    'respiratory' => [
+        'title' => 'Atemschutz', 
+        'icon' => 'Wind', 
+        'desc' => 'Atemschutzwerkstatt & Prüfungen'
+    ],
+    'hoses' => [
+        'title' => 'Schlauchpflege', 
+        'icon' => 'Droplet', 
+        'desc' => 'Schlauchwäsche & Prüfung'
+    ],
+    'vehicles' => [
+        'title' => 'Fahrtenbuch', 
+        'icon' => 'Truck', 
+        'desc' => 'Digitales Fahrtenbuch & Tanken'
+    ],
+    'apiAccess' => [
+        'title' => 'API Zugriff', 
+        'icon' => 'Database', 
+        'desc' => 'Zugriff für externe Systeme'
+    ],
+    'personnel' => [
+        'title' => 'Personal', 
+        'icon' => 'Users', 
+        'desc' => 'Mannschaftsverwaltung & Lehrgänge'
+    ]
+];
+
 // --- HELPER ---
 function getDb($file) {
     $init = !file_exists($file);
@@ -176,6 +212,29 @@ function normalizeDomain($url) {
     return $parts[0];
 }
 
+function buildRichModules($featuresJson, $config) {
+    $features = json_decode($featuresJson, true);
+    if (!is_array($features)) $features = [];
+    
+    $richList = [];
+    
+    // Iterate over config to ensure all known modules are listed (or just active ones?)
+    // Usually client wants list of capabilities. Let's list all configured ones with status.
+    foreach ($config as $key => $def) {
+        $isActive = isset($features[$key]) && $features[$key] === true;
+        
+        $richList[] = [
+            'technicalName' => $key,
+            'title' => $def['title'],
+            'description' => $def['desc'],
+            'iconName' => $def['icon'], // For Lucide React mapping
+            'iconUrl' => null, // Placeholder if client needs URL
+            'active' => $isActive
+        ];
+    }
+    return $richList;
+}
+
 // --- MAIN LOGIC ---
 $input = json_decode(file_get_contents('php://input'), true);
 $db = getDb($dbFile);
@@ -239,6 +298,16 @@ if (isset($input['action'])) {
         exit;
     }
 
+    if ($input['action'] === 'delete_license') {
+        // PUSH: Delete License Permanently
+        $id = $input['id'];
+        $stmt = $db->prepare("DELETE FROM licenses WHERE id = :id");
+        $stmt->bindValue(':id', $id);
+        $stmt->execute();
+        echo json_encode(['status' => 'ok']);
+        exit;
+    }
+
     if ($input['action'] === 'update_request') {
         // PUSH: Update Request (e.g. customMessage)
         $req = $input['request'];
@@ -283,7 +352,7 @@ if (!$providedKey) {
             'key' => $license['key'],
             'validUntil' => $license['validUntil'],
             'daysRemaining' => $daysRemaining,
-            'modules' => $isExpired ? [] : array_keys(array_filter(json_decode($license['features'], true))),
+            'modules' => buildRichModules($license['features'], $moduleConfig),
             'features' => $isExpired ? new stdClass() : json_decode($license['features'], true)
         ]);
         exit;
@@ -355,7 +424,7 @@ echo json_encode([
     'status' => $isExpired ? 'expired' : 'valid',
     'validUntil' => $license['validUntil'],
     'daysRemaining' => $daysRemaining,
-    'modules' => $isExpired ? [] : array_keys(array_filter(json_decode($license['features'], true))),
+    'modules' => buildRichModules($license['features'], $moduleConfig),
     'features' => $isExpired ? new stdClass() : json_decode($license['features'], true)
 ]);
 ?>`;
@@ -516,9 +585,9 @@ echo json_encode([
                           </p>
                       </div>
                        <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
-                          <h4 className="font-bold text-orange-900 text-sm mb-1">Custom Messages</h4>
+                          <h4 className="font-bold text-orange-900 text-sm mb-1">Rich JSON</h4>
                           <p className="text-xs text-orange-800">
-                              API gibt Ihre benutzerdefinierten Nachrichten zurück, solange eine Anfrage "pending" ist.
+                              API gibt jetzt detaillierte Modul-Informationen (Titel, Icons, Status) zurück.
                           </p>
                       </div>
                   </div>

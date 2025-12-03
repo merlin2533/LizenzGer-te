@@ -1,4 +1,5 @@
 
+
 import { License, LicenseRequest, ApiLogEntry, FeatureSet, DEFAULT_FEATURES, ModuleDefinition } from '../types';
 import { DEFAULT_MODULES_SEED } from '../config';
 
@@ -392,6 +393,12 @@ export const updateLicenseDetails = async (id: string, details: Partial<License>
 export const revokeLicense = async (id: string) => {
   if (!db) await initDatabase();
   db.run("UPDATE licenses SET status = 'suspended' WHERE id = ?", [id]);
+  saveDatabase();
+};
+
+export const deleteLicense = async (id: string) => {
+  if (!db) await initDatabase();
+  db.run("DELETE FROM licenses WHERE id = ?", [id]);
   saveDatabase();
 };
 

@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { License, LicenseRequest, FeatureSet, DEFAULT_FEATURES, ApiLogEntry, ModuleDefinition } from './types';
 import { LicenseCard } from './components/LicenseCard';
@@ -254,7 +256,7 @@ export default function App() {
         }
         
         // 2. OTHER ACTIONS (PUSH/DELETE/UPDATE)
-        if (['push_license', 'delete_request', 'update_request'].includes(parsedBody.action)) {
+        if (['push_license', 'delete_request', 'update_request', 'delete_license'].includes(parsedBody.action)) {
              // For simulation, we verify secret but don't need to do anything since local DB is already updated
              const storedSecret = await DB.getSetting('adminSecret') || '123456';
              if (parsedBody.secret !== storedSecret) {
@@ -301,6 +303,7 @@ export default function App() {
          let body: any = { action, secret };
          if (action === 'push_license') body.license = payload;
          if (action === 'delete_request') body.id = payload.id;
+         if (action === 'delete_license') body.id = payload.id;
          if (action === 'update_request') body.request = payload;
 
          await performApiCall(currentUrl, {
@@ -479,6 +482,19 @@ export default function App() {
 
       await refreshData();
     }
+  };
+
+  const handleDeleteLicense = async (id: string) => {
+      const licToDelete = licenses.find(l => l.id === id);
+      const confirmMessage = licToDelete
+        ? `ACHTUNG: Möchten Sie die Lizenz für "${licToDelete.organization}" ENDGÜLTIG LÖSCHEN?\n\nDiese Aktion kann nicht rückgängig gemacht werden!`
+        : 'Möchten Sie diese Lizenz wirklich unwiderruflich löschen?';
+
+      if (confirm(confirmMessage)) {
+          await DB.deleteLicense(id);
+          await pushToServer('delete_license', { id });
+          await refreshData();
+      }
   };
 
   const filteredLicenses = licenses.filter(l => {
@@ -680,6 +696,7 @@ export default function App() {
                     onUpdateFeatures={handleUpdateFeatures}
                     onUpdateDetails={handleUpdateDetails}
                     onRevoke={handleRevoke}
+                    onDelete={handleDeleteLicense}
                     availableModules={modules}
                   />
                 ))

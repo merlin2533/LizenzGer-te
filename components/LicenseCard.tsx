@@ -1,7 +1,8 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { License, FeatureSet, ModuleDefinition } from '../types';
-import { ShieldCheck, ShieldAlert, Check, Globe, Phone, Pencil, Save, X, MessageSquare, Building2, User, Mail, Calendar } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Check, Globe, Phone, Pencil, Save, X, MessageSquare, Building2, User, Mail, Calendar, Trash2 } from 'lucide-react';
 import { ICON_REGISTRY } from '../config';
 
 interface LicenseCardProps {
@@ -9,6 +10,7 @@ interface LicenseCardProps {
   onUpdateFeatures: (id: string, features: FeatureSet) => void;
   onUpdateDetails: (id: string, details: Partial<License>) => Promise<void> | void;
   onRevoke: (id: string) => void;
+  onDelete: (id: string) => void;
   availableModules: ModuleDefinition[];
 }
 
@@ -32,7 +34,7 @@ const FeatureIcon = ({ moduleDef, active }: { moduleDef: ModuleDefinition, activ
   );
 };
 
-export const LicenseCard: React.FC<LicenseCardProps> = ({ license, onUpdateFeatures, onUpdateDetails, onRevoke, availableModules }) => {
+export const LicenseCard: React.FC<LicenseCardProps> = ({ license, onUpdateFeatures, onUpdateDetails, onRevoke, onDelete, availableModules }) => {
   const isExpired = new Date(license.validUntil) < new Date();
   const [isEditing, setIsEditing] = useState(false);
   
@@ -204,6 +206,15 @@ export const LicenseCard: React.FC<LicenseCardProps> = ({ license, onUpdateFeatu
       <div className="pt-4 border-t border-gray-100 flex justify-between items-center text-sm">
         <span className="text-gray-400 text-xs">
             {!isEditing && `Gültig bis: ${new Date(license.validUntil).toLocaleDateString('de-DE')}`}
+            {isEditing && (
+                <button
+                    onClick={() => onDelete(license.id)}
+                    className="flex items-center gap-1 text-red-600 hover:text-red-800 font-bold text-xs"
+                    title="Lizenz endgültig löschen"
+                >
+                    <Trash2 size={12} /> Löschen
+                </button>
+            )}
         </span>
         
         {isEditing ? (
