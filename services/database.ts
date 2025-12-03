@@ -1,4 +1,3 @@
-
 import { License, LicenseRequest, ApiLogEntry, FeatureSet, ModuleDefinition } from '../types';
 
 // API Configuration - stored in localStorage
@@ -67,7 +66,25 @@ export const saveSetting = async (key: string, value: string): Promise<void> => 
 };
 
 // ==================== MODULES ====================
-return result.data || [];
+
+export const getModules = async (): Promise<ModuleDefinition[]> => {
+  const result = await apiCall('get_modules');
+  return result.data || [];
+};
+
+export const addModule = async (module: ModuleDefinition): Promise<void> => {
+  await apiCall('add_module', { module });
+};
+
+export const deleteModule = async (id: string): Promise<void> => {
+  await apiCall('delete_module', { id });
+};
+
+// ==================== LICENSES ====================
+
+export const getLicenses = async (): Promise<License[]> => {
+  const result = await apiCall('get_licenses');
+  return result.data || [];
 };
 
 export const createLicense = async (license: License): Promise<void> => {
