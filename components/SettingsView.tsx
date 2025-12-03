@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Database, Plus, Trash2, ServerCog, HardDrive, LayoutGrid, Globe, ScrollText, Lock } from 'lucide-react';
+import { Upload, Download, Database, Plus, Trash2, ServerCog, HardDrive, LayoutGrid, Globe, ScrollText, Lock, Table, Eye } from 'lucide-react';
 import { ModuleDefinition, ApiLogEntry } from '../types';
 import { ICON_REGISTRY } from '../config';
 import { ApiConsole } from './ApiConsole';
@@ -16,7 +16,7 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modules, apiLogs, onApiRequest, apiUrl, onSaveApiUrl }) => {
-  const [activeSection, setActiveSection] = useState<'general' | 'modules' | 'api' | 'logs'>('general');
+  const [activeSection, setActiveSection] = useState<'general' | 'modules' | 'api' | 'logs' | 'db'>('general');
   const [newModule, setNewModule] = useState<ModuleDefinition>({
     id: '',
     label: '',
@@ -25,6 +25,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modul
   });
   const [localApiUrl, setLocalApiUrl] = useState(apiUrl);
   const [adminSecret, setAdminSecret] = useState('');
+  
+  // DB Inspector State
+  const [selectedTable, setSelectedTable] = useState('licenses');
+  const [tableData, setTableData] = useState<any[]>([]);
 
   useEffect(() => {
     setLocalApiUrl(apiUrl);
@@ -33,6 +37,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modul
         else setAdminSecret('123456'); // Default suggestion
     });
   }, [apiUrl]);
+
+  useEffect(() => {
+      if (activeSection === 'db') {
+          DB.getRawTableData(selectedTable).then(setTableData);
+      }
+  }, [activeSection, selectedTable]);
 
   const handleSaveSecret = async () => {
       await DB.saveSetting('adminSecret', adminSecret);
@@ -100,6 +110,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modul
           <div className="flex items-center gap-2">
             <ScrollText size={16} />
             Request Logs
+          </div>
+        </button>
+        <button 
+          onClick={() => setActiveSection('db')}
+          className={`pb-3 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${activeSection === 'db' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <div className="flex items-center gap-2">
+            <Table size={16} />
+            DB Inspektor
           </div>
         </button>
         <button 
@@ -367,6 +386,48 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshData, modul
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {activeSection === 'db' && (
+        <div className="space-y-4">
+            <div className="flex gap-2">
+                {['licenses', 'requests', 'settings', 'logs'].map(table => (
+                    <button
+                        key={table}
+                        onClick={() => setSelectedTable(table)}
+                        className={`px-3 py-1 text-xs font-bold uppercase rounded ${selectedTable === table ? 'bg-slate-800 text-white' : 'bg-gray-200 text-gray-600'}`}
+                    >
+                        {table}
+                    </button>
+                ))}
+            </div>
+            <div className="bg-slate-900 rounded-lg p-4 overflow-x-auto text-xs font-mono text-gray-300">
+                {tableData.length === 0 ? (
+                    <div className="text-gray-500 italic">Tabelle leer oder nicht lesbar.</div>
+                ) : (
+                     <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="border-b border-gray-700 text-gray-400">
+                                {Object.keys(tableData[0]).map(key => (
+                                    <th key={key} className="p-2">{key}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {tableData.map((row, i) => (
+                                <tr key={i} className="border-b border-gray-800 hover:bg-slate-800">
+                                    {Object.values(row).map((val: any, j) => (
+                                        <td key={j} className="p-2 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis">
+                                            {typeof val === 'object' ? JSON.stringify(val) : String(val)}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                     </table>
+                )}
+            </div>
         </div>
       )}
 

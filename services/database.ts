@@ -1,5 +1,4 @@
 
-
 import { License, LicenseRequest, ApiLogEntry, FeatureSet, DEFAULT_FEATURES, ModuleDefinition } from '../types';
 import { DEFAULT_MODULES_SEED } from '../config';
 
@@ -582,3 +581,22 @@ export const downloadDatabaseFile = async () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 };
+
+export const getRawTableData = async (tableName: string): Promise<any[]> => {
+    if (!db) await initDatabase();
+    try {
+        const res = db.exec(`SELECT * FROM ${tableName}`);
+        if (!res.length) return [];
+        const columns = res[0].columns;
+        const rows = res[0].values;
+        return rows.map((row: any[]) => {
+            const obj: any = {};
+            columns.forEach((col: string, idx: number) => {
+                obj[col] = row[idx];
+            });
+            return obj;
+        });
+    } catch(e) {
+        return [];
+    }
+}
