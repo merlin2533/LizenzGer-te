@@ -14,18 +14,18 @@ export default function App() {
   const [requests, setRequests] = useState<LicenseRequest[]>([]);
   const [licenses, setLicenses] = useState<License[]>([]);
   const [modules, setModules] = useState<ModuleDefinition[]>([]);
-  
+
   // Modals State
   const [selectedRequest, setSelectedRequest] = useState<LicenseRequest | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'expired' | 'suspended'>('all');
-  
+
   const [apiLogs, setApiLogs] = useState<ApiLogEntry[]>([]);
   const [dbReady, setDbReady] = useState(false);
   const [apiUrl, setApiUrl] = useState("https://lizenz.straub-it.de/v1/license/verify");
-  
+
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
 
@@ -39,13 +39,13 @@ export default function App() {
     init();
   }, []);
 
-  // Background Sync Interval
+  // Auto-refresh data every 30 seconds (since we use server DB directly now)
   useEffect(() => {
     if (!dbReady) return;
 
-    // Run sync every 30 seconds
+    // Refresh data from server every 30 seconds
     const intervalId = setInterval(() => {
-      handleServerSync(true); // silent mode
+      refreshData(); // Load fresh data from server
     }, 30000);
 
     return () => clearInterval(intervalId);
@@ -53,35 +53,41 @@ export default function App() {
 
   const refreshData = async () => {
     try {
-        const lics = await DB.getLicenses();
-        const reqs = await DB.getRequests();
-        const logs = await DB.getLogs();
-        const mods = await DB.getModules();
-        const url = await DB.getSetting('apiUrl');
-        
-        setLicenses(lics);
-        setRequests(reqs);
-        setApiLogs(logs);
-        setModules(mods);
-        if (url) setApiUrl(url);
-    } catch(e) {
-        console.error("Error refreshing data:", e);
+      console.log('[App] Refreshing data from server API...');
+      const lics = await DB.getLicenses();
+      const reqs = await DB.getRequests();
+      const logs = await DB.getLogs();
+      const mods = await DB.getModules();
+      const url = await DB.getSetting('apiUrl');
+
+      setLicenses(lics);
+      setRequests(reqs);
+      setApiLogs(logs);
+      setModules(mods);
+      if (url) setApiUrl(url);
+      console.log(`[App] Data loaded: ${lics.length} licenses, ${reqs.length} requests, ${logs.length} logs`);
+    } catch (e: any) {
+      console.error("Error refreshing data:", e);
+      // Show error to user if API URL not configured
+      if (e.message.includes('not configured')) {
+        console.warn('[App] API URL not configured. Please configure in Settings.');
+      }
     }
   };
 
   const handleUpdateApiUrl = async (url: string) => {
-      await DB.saveSetting('apiUrl', url);
-      setApiUrl(url);
+    await DB.saveSetting('apiUrl', url);
+    setApiUrl(url);
   };
 
   // Helper to clean domain (remove protocol, port, path)
   const normalizeDomain = (url: string) => {
-      if (!url) return 'unknown';
-      let normalized = url.toLowerCase().trim();
-      normalized = normalized.replace(/^https?:\/\//, '');
-      normalized = normalized.split('/')[0];
-      normalized = normalized.split(':')[0];
-      return normalized;
+    if (!url) return 'unknown';
+    let normalized = url.toLowerCase().trim();
+    normalized = normalized.replace(/^https?:\/\//, '');
+    normalized = normalized.split('/')[0];
+    normalized = normalized.split(':')[0];
+    return normalized;
   };
 
   // Simulate API Logic against SQLite
@@ -89,70 +95,70 @@ export default function App() {
     let responseStatus: 200 | 201 | 401 | 403 = 200;
     let responseBody: any = {};
     const now = new Date();
-    
+
     // Normalize domain for consistent DB lookups
     const domain = normalizeDomain(sourceUrl);
 
     if (!key) {
       // SCENARIO 1: No Key provided (Auto Check)
-      
+
       // 1. Check if License exists for this domain
       const existingLicense = await DB.findLicenseByDomain(domain);
-      
-      if (existingLicense) {
-         // License found! Check validity
-         const validUntilDate = new Date(existingLicense.validUntil);
-         const isExpired = validUntilDate < now;
-         const daysRemaining = Math.ceil((validUntilDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-         responseStatus = 200;
-         responseBody = {
-           status: isExpired ? 'expired' : 'active',
-           message: isExpired ? 'License expired. Please renew.' : 'License found.',
-           key: existingLicense.key, // AUTO-RECOVERY: Return Key
-           validUntil: existingLicense.validUntil,
-           daysRemaining: daysRemaining,
-           modules: isExpired ? [] : Object.entries(existingLicense.features).filter(([_, v]) => v).map(([k]) => k),
-           features: isExpired ? {} : existingLicense.features
-         };
+      if (existingLicense) {
+        // License found! Check validity
+        const validUntilDate = new Date(existingLicense.validUntil);
+        const isExpired = validUntilDate < now;
+        const daysRemaining = Math.ceil((validUntilDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+        responseStatus = 200;
+        responseBody = {
+          status: isExpired ? 'expired' : 'active',
+          message: isExpired ? 'License expired. Please renew.' : 'License found.',
+          key: existingLicense.key, // AUTO-RECOVERY: Return Key
+          validUntil: existingLicense.validUntil,
+          daysRemaining: daysRemaining,
+          modules: isExpired ? [] : Object.entries(existingLicense.features).filter(([_, v]) => v).map(([k]) => k),
+          features: isExpired ? {} : existingLicense.features
+        };
       } else {
         // 2. No License found -> Check if Request exists
         const existingReq = await DB.findRequestByDomain(domain);
 
         if (existingReq) {
-             responseStatus = 200; // Success, but pending
-             responseBody = {
-                 status: 'pending',
-                 message: existingReq.customMessage || 'Registrierungsanfrage wartet auf Freigabe.',
-                 requestId: existingReq.id
-             };
+          responseStatus = 200; // Success, but pending
+          responseBody = {
+            status: 'pending',
+            message: existingReq.customMessage || 'Registrierungsanfrage wartet auf Freigabe.',
+            requestId: existingReq.id
+          };
         } else {
-             // 3. No License & No Request -> Create Request AUTOMATICALLY
-             const newReq: LicenseRequest = {
-                 id: `req_auto_${Date.now()}`,
-                 organization: 'Unbekannt (Auto-Request)',
-                 contactPerson: 'System Admin',
-                 email: `admin@${domain}`,
-                 requestedDomain: domain,
-                 requestDate: new Date().toISOString(),
-                 note: 'Automatische Anfrage durch Installation (API)'
-             };
-             
-             await DB.createRequest(newReq);
-             
-             responseStatus = 201;
-             responseBody = {
-                 status: 'requested',
-                 message: 'Anfrage erfolgreich erstellt. Bitte kontaktieren Sie den Support zur Freischaltung.',
-                 requestId: newReq.id
-             };
+          // 3. No License & No Request -> Create Request AUTOMATICALLY
+          const newReq: LicenseRequest = {
+            id: `req_auto_${Date.now()}`,
+            organization: 'Unbekannt (Auto-Request)',
+            contactPerson: 'System Admin',
+            email: `admin@${domain}`,
+            requestedDomain: domain,
+            requestDate: new Date().toISOString(),
+            note: 'Automatische Anfrage durch Installation (API)'
+          };
+
+          await DB.createRequest(newReq);
+
+          responseStatus = 201;
+          responseBody = {
+            status: 'requested',
+            message: 'Anfrage erfolgreich erstellt. Bitte kontaktieren Sie den Support zur Freischaltung.',
+            requestId: newReq.id
+          };
         }
       }
 
     } else {
       // SCENARIO 2: Key Provided -> Validation
       const license = await DB.findLicenseByKey(key);
-      
+
       if (!license) {
         responseStatus = 403;
         responseBody = { error: 'Invalid License Key' };
@@ -171,7 +177,7 @@ export default function App() {
         responseStatus = 200;
 
         if (isExpired) {
-           responseBody = {
+          responseBody = {
             status: 'expired',
             message: 'Your license has expired. No modules available.',
             validUntil: license.validUntil,
@@ -220,76 +226,76 @@ export default function App() {
   const performApiCall = async (url: string, options: RequestInit = {}) => {
     // Check if we should simulate (matches configured API URL)
     if (url === apiUrl) {
-        console.log(`[API SIMULATOR] Intercepting call to ${url}`);
-        
-        let parsedBody: any = {};
-        if (options.body) {
-            try {
-                parsedBody = JSON.parse(options.body as string);
-            } catch(e) {}
-        }
+      console.log(`[API SIMULATOR] Intercepting call to ${url}`);
 
-        // 1. SYNC REQUEST
-        if (parsedBody.action === 'sync_admin') {
-             const storedSecret = await DB.getSetting('adminSecret') || '123456';
-             if (parsedBody.secret !== storedSecret) {
-                  return {
-                      ok: false,
-                      status: 403,
-                      headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
-                      json: async () => ({ error: 'Invalid Secret' }),
-                      text: async () => JSON.stringify({ error: 'Invalid Secret' })
-                  };
-             }
-             const lics = await DB.getLicenses();
-             const reqs = await DB.getRequests();
-             
-             return {
-                 ok: true,
-                 status: 200,
-                 headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
-                 json: async () => ({
-                     status: 'ok',
-                     licenses: lics,
-                     requests: reqs,
-                     logs: [] // Add logs for simulation
-                 }),
-                 text: async () => JSON.stringify({ status: 'ok', licenses: lics, requests: reqs, logs: [] })
-             };
-        }
-        
-        // 2. OTHER ACTIONS (PUSH/DELETE/UPDATE)
-        if (['push_license', 'delete_request', 'update_request', 'delete_license'].includes(parsedBody.action)) {
-             // For simulation, we verify secret but don't need to do anything since local DB is already updated
-             const storedSecret = await DB.getSetting('adminSecret') || '123456';
-             if (parsedBody.secret !== storedSecret) {
-                  return {
-                      ok: false,
-                      status: 403,
-                      headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
-                      json: async () => ({ error: 'Invalid Secret' }),
-                      text: async () => JSON.stringify({ error: 'Invalid Secret' })
-                  };
-             }
-             return {
-                 ok: true,
-                 status: 200,
-                 headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
-                 json: async () => ({ status: 'ok' }),
-                 text: async () => JSON.stringify({ status: 'ok' })
-             };
-        }
+      let parsedBody: any = {};
+      if (options.body) {
+        try {
+          parsedBody = JSON.parse(options.body as string);
+        } catch (e) { }
+      }
 
-        // 3. STANDARD LICENSE REQUEST (VERIFY) fallback
-        // Usually handled by handleApiRequest directly, but just in case
-        const result = await handleApiRequest('internal-simulator', parsedBody.key);
-        return {
-            ok: result.responseStatus === 200 || result.responseStatus === 201,
-            status: result.responseStatus,
+      // 1. SYNC REQUEST
+      if (parsedBody.action === 'sync_admin') {
+        const storedSecret = await DB.getSetting('adminSecret') || '123456';
+        if (parsedBody.secret !== storedSecret) {
+          return {
+            ok: false,
+            status: 403,
             headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
-            json: async () => JSON.parse(result.responseBody),
-            text: async () => result.responseBody
+            json: async () => ({ error: 'Invalid Secret' }),
+            text: async () => JSON.stringify({ error: 'Invalid Secret' })
+          };
+        }
+        const lics = await DB.getLicenses();
+        const reqs = await DB.getRequests();
+
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
+          json: async () => ({
+            status: 'ok',
+            licenses: lics,
+            requests: reqs,
+            logs: [] // Add logs for simulation
+          }),
+          text: async () => JSON.stringify({ status: 'ok', licenses: lics, requests: reqs, logs: [] })
         };
+      }
+
+      // 2. OTHER ACTIONS (PUSH/DELETE/UPDATE)
+      if (['push_license', 'delete_request', 'update_request', 'delete_license'].includes(parsedBody.action)) {
+        // For simulation, we verify secret but don't need to do anything since local DB is already updated
+        const storedSecret = await DB.getSetting('adminSecret') || '123456';
+        if (parsedBody.secret !== storedSecret) {
+          return {
+            ok: false,
+            status: 403,
+            headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
+            json: async () => ({ error: 'Invalid Secret' }),
+            text: async () => JSON.stringify({ error: 'Invalid Secret' })
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
+          json: async () => ({ status: 'ok' }),
+          text: async () => JSON.stringify({ status: 'ok' })
+        };
+      }
+
+      // 3. STANDARD LICENSE REQUEST (VERIFY) fallback
+      // Usually handled by handleApiRequest directly, but just in case
+      const result = await handleApiRequest('internal-simulator', parsedBody.key);
+      return {
+        ok: result.responseStatus === 200 || result.responseStatus === 201,
+        status: result.responseStatus,
+        headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
+        json: async () => JSON.parse(result.responseBody),
+        text: async () => result.responseBody
+      };
     }
 
     // Fallback to real fetch for non-intercepted URLs
@@ -297,26 +303,26 @@ export default function App() {
   };
 
   const pushToServer = async (action: string, payload: any) => {
-     const secret = await DB.getSetting('adminSecret') || '123456';
-     const currentUrl = await DB.getSetting('apiUrl');
-     if(!currentUrl) return;
+    const secret = await DB.getSetting('adminSecret') || '123456';
+    const currentUrl = await DB.getSetting('apiUrl');
+    if (!currentUrl) return;
 
-     try {
-         // Determine payload key based on action
-         let body: any = { action, secret };
-         if (action === 'push_license') body.license = payload;
-         if (action === 'delete_request') body.id = payload.id;
-         if (action === 'delete_license') body.id = payload.id;
-         if (action === 'update_request') body.request = payload;
+    try {
+      // Determine payload key based on action
+      let body: any = { action, secret };
+      if (action === 'push_license') body.license = payload;
+      if (action === 'delete_request') body.id = payload.id;
+      if (action === 'delete_license') body.id = payload.id;
+      if (action === 'update_request') body.request = payload;
 
-         await performApiCall(currentUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-         });
-     } catch (e) {
-         console.error("Push failed", e);
-     }
+      await performApiCall(currentUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    } catch (e) {
+      console.error("Push failed", e);
+    }
   };
 
   const handleServerSync = async (silent = false) => {
@@ -324,60 +330,60 @@ export default function App() {
     const currentUrl = await DB.getSetting('apiUrl');
 
     if (!currentUrl) {
-        if (!silent) alert("Bitte API URL in den Einstellungen konfigurieren.");
-        return;
+      if (!silent) alert("Bitte API URL in den Einstellungen konfigurieren.");
+      return;
     }
 
     if (!silent) setIsSyncing(true);
     setSyncError(false);
 
     try {
-        const response = await performApiCall(currentUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                action: 'sync_admin', 
-                secret: secret 
-            })
-        });
+      const response = await performApiCall(currentUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'sync_admin',
+          secret: secret
+        })
+      });
 
-        const contentType = response.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-            if (!silent) {
-                 const text = await response.text();
-                 console.warn("Sync Endpoint returned non-JSON response.", text);
-                 alert("Fehler: Der Server hat kein JSON zurückgegeben. Bitte prüfen Sie die API URL.");
-            }
-            throw new Error(`Server returned ${response.status} (Not JSON)`);
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        if (!silent) {
+          const text = await response.text();
+          console.warn("Sync Endpoint returned non-JSON response.", text);
+          alert("Fehler: Der Server hat kein JSON zurückgegeben. Bitte prüfen Sie die API URL.");
         }
+        throw new Error(`Server returned ${response.status} (Not JSON)`);
+      }
 
-        const data = await response.json();
+      const data = await response.json();
 
-        if (data.error) {
-            console.error("Sync Error:", data.error);
-            if (!silent) alert("Sync Fehler: " + data.error);
-            setSyncError(true);
-        } else if (data.licenses || data.requests) {
-            // FIX: Include logs in sync
-            await DB.mergeExternalData(data.licenses || [], data.requests || [], data.logs || []);
-            await refreshData();
-            if (!silent) alert(`Synchronisation erfolgreich! ${data.requests?.length || 0} Anfragen, ${data.licenses?.length || 0} Lizenzen geladen.`);
-        }
-    } catch (e: any) {
-        console.error("Sync Network Error:", e.message);
-        if (!silent) alert(`Verbindungsfehler beim Sync: ${e.message}`);
+      if (data.error) {
+        console.error("Sync Error:", data.error);
+        if (!silent) alert("Sync Fehler: " + data.error);
         setSyncError(true);
+      } else if (data.licenses || data.requests) {
+        // FIX: Include logs in sync
+        await DB.mergeExternalData(data.licenses || [], data.requests || [], data.logs || []);
+        await refreshData();
+        if (!silent) alert(`Synchronisation erfolgreich! ${data.requests?.length || 0} Anfragen, ${data.licenses?.length || 0} Lizenzen geladen.`);
+      }
+    } catch (e: any) {
+      console.error("Sync Network Error:", e.message);
+      if (!silent) alert(`Verbindungsfehler beim Sync: ${e.message}`);
+      setSyncError(true);
     } finally {
-        if (!silent) setIsSyncing(false);
+      if (!silent) setIsSyncing(false);
     }
   };
 
 
   const handleApprove = async (
-    request: LicenseRequest, 
+    request: LicenseRequest,
     updatedDetails: { organization: string, contactPerson: string, email: string, phoneNumber: string },
-    features: FeatureSet, 
-    validUntil: string, 
+    features: FeatureSet,
+    validUntil: string,
     emailContent: string
   ) => {
     const newLicense: License = {
@@ -397,45 +403,45 @@ export default function App() {
 
     await DB.createLicense(newLicense);
     await DB.deleteRequest(request.id);
-    
+
     // PUSH to Server
     await pushToServer('push_license', newLicense);
     await pushToServer('delete_request', { id: request.id });
-    
+
     setSelectedRequest(null);
     setActiveTab('dashboard');
     await refreshData();
   };
-  
-  const handleUpdateRequest = async (request: LicenseRequest, details: Partial<LicenseRequest>) => {
-      const updatedReq = { ...request, ...details };
-      await DB.updateRequest(updatedReq);
-      // PUSH to Server
-      await pushToServer('update_request', updatedReq);
 
-      setSelectedRequest(null);
-      await refreshData();
+  const handleUpdateRequest = async (request: LicenseRequest, details: Partial<LicenseRequest>) => {
+    const updatedReq = { ...request, ...details };
+    await DB.updateRequest(updatedReq);
+    // PUSH to Server
+    await pushToServer('update_request', updatedReq);
+
+    setSelectedRequest(null);
+    await refreshData();
   };
 
   const handleManualCreate = async (
     details: { organization: string, contactPerson: string, email: string, phoneNumber: string, domain: string, note: string },
-    features: FeatureSet, 
+    features: FeatureSet,
     validUntil: string,
     emailContent: string
   ) => {
     const newLicense: License = {
-        id: `lic_man_${Date.now()}`,
-        organization: details.organization,
-        contactPerson: details.contactPerson,
-        email: details.email,
-        phoneNumber: details.phoneNumber,
-        domain: normalizeDomain(details.domain),
-        key: `FFW-${Math.random().toString(36).substr(2, 4).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
-        validUntil,
-        status: 'active',
-        features,
-        createdAt: new Date().toISOString(),
-        note: details.note
+      id: `lic_man_${Date.now()}`,
+      organization: details.organization,
+      contactPerson: details.contactPerson,
+      email: details.email,
+      phoneNumber: details.phoneNumber,
+      domain: normalizeDomain(details.domain),
+      key: `FFW-${Math.random().toString(36).substr(2, 4).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
+      validUntil,
+      status: 'active',
+      features,
+      createdAt: new Date().toISOString(),
+      note: details.note
     };
 
     await DB.createLicense(newLicense);
@@ -449,39 +455,39 @@ export default function App() {
 
   const handleUpdateFeatures = async (id: string, newFeatures: FeatureSet) => {
     await DB.updateLicenseFeatures(id, newFeatures);
-    
+
     // Sync update
     const lic = await DB.findLicenseByKey(id) || licenses.find(l => l.id === id);
     if (lic) {
-         await pushToServer('push_license', { ...lic, features: newFeatures });
+      await pushToServer('push_license', { ...lic, features: newFeatures });
     }
-    
+
     await refreshData();
   };
 
   const handleUpdateDetails = async (id: string, details: Partial<License>) => {
     await DB.updateLicenseDetails(id, details);
-    
+
     // Sync update
     const lic = await DB.findLicenseByKey(id) || licenses.find(l => l.id === id);
     if (lic) {
-         await pushToServer('push_license', { ...lic, ...details });
+      await pushToServer('push_license', { ...lic, ...details });
     }
-    
+
     await refreshData();
   };
 
   const handleRevoke = async (id: string) => {
     const licToRevoke = licenses.find(l => l.id === id);
-    const confirmMessage = licToRevoke 
+    const confirmMessage = licToRevoke
       ? `Sind Sie sicher, dass Sie die Lizenz für "${licToRevoke.organization}" widerrufen möchten?`
       : 'Sind Sie sicher, dass Sie diese Lizenz widerrufen möchten?';
 
     if (confirm(confirmMessage)) {
       await DB.revokeLicense(id);
-      
+
       if (licToRevoke) {
-          await pushToServer('push_license', { ...licToRevoke, status: 'suspended' });
+        await pushToServer('push_license', { ...licToRevoke, status: 'suspended' });
       }
 
       await refreshData();
@@ -489,23 +495,23 @@ export default function App() {
   };
 
   const handleDeleteLicense = async (id: string) => {
-      const licToDelete = licenses.find(l => l.id === id);
-      const confirmMessage = licToDelete
-        ? `ACHTUNG: Möchten Sie die Lizenz für "${licToDelete.organization}" ENDGÜLTIG LÖSCHEN?\n\nDiese Aktion kann nicht rückgängig gemacht werden!`
-        : 'Möchten Sie diese Lizenz wirklich unwiderruflich löschen?';
+    const licToDelete = licenses.find(l => l.id === id);
+    const confirmMessage = licToDelete
+      ? `ACHTUNG: Möchten Sie die Lizenz für "${licToDelete.organization}" ENDGÜLTIG LÖSCHEN?\n\nDiese Aktion kann nicht rückgängig gemacht werden!`
+      : 'Möchten Sie diese Lizenz wirklich unwiderruflich löschen?';
 
-      if (confirm(confirmMessage)) {
-          await DB.deleteLicense(id);
-          await pushToServer('delete_license', { id });
-          await refreshData();
-      }
+    if (confirm(confirmMessage)) {
+      await DB.deleteLicense(id);
+      await pushToServer('delete_license', { id });
+      await refreshData();
+    }
   };
 
   const filteredLicenses = licenses.filter(l => {
-    const matchesSearch = l.organization.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          l.key.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          l.domain.toLowerCase().includes(searchTerm.toLowerCase());
-    
+    const matchesSearch = l.organization.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      l.key.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      l.domain.toLowerCase().includes(searchTerm.toLowerCase());
+
     if (!matchesSearch) return false;
 
     // Status Filter Logic
@@ -517,7 +523,7 @@ export default function App() {
     if (filterStatus === 'suspended') return l.status === 'suspended';
     if (filterStatus === 'expired') return isExpired;
     if (filterStatus === 'active') return l.status === 'active' && !isExpired;
-    
+
     return true;
   });
 
@@ -543,16 +549,16 @@ export default function App() {
             <span className="text-xs text-slate-400 font-mono">LIZENZ MANAGER</span>
           </div>
         </div>
-        
+
         <nav className="flex-1 p-4 space-y-2">
-          <button 
+          <button
             onClick={() => setActiveTab('dashboard')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
           >
             <LayoutDashboard size={18} />
             Übersicht
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('requests')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'requests' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
           >
@@ -567,24 +573,24 @@ export default function App() {
           </button>
 
           <div className="pt-4 mt-4 border-t border-slate-800">
-             <span className="px-4 text-xs font-bold text-slate-500 uppercase">Verwaltung</span>
-             <button 
-                onClick={() => setActiveTab('settings')}
-                className={`w-full flex items-center gap-3 px-4 py-3 mt-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-             >
-                <Settings size={18} />
-                Einstellungen
-             </button>
-             
-             <button 
-                onClick={() => handleServerSync()}
-                disabled={isSyncing}
-                className={`w-full flex items-center gap-3 px-4 py-3 mt-2 rounded-lg text-sm font-medium transition-colors text-slate-400 hover:bg-slate-800 hover:text-white group relative`}
-             >
-                <RefreshCw size={18} className={`group-hover:text-blue-400 ${isSyncing ? 'animate-spin text-blue-500' : ''}`} />
-                {isSyncing ? 'Synchronisiere...' : 'Server Sync'}
-                {syncError && <div className="absolute right-4 w-2 h-2 bg-red-500 rounded-full"></div>}
-             </button>
+            <span className="px-4 text-xs font-bold text-slate-500 uppercase">Verwaltung</span>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`w-full flex items-center gap-3 px-4 py-3 mt-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+            >
+              <Settings size={18} />
+              Einstellungen
+            </button>
+
+            <button
+              onClick={() => handleServerSync()}
+              disabled={isSyncing}
+              className={`w-full flex items-center gap-3 px-4 py-3 mt-2 rounded-lg text-sm font-medium transition-colors text-slate-400 hover:bg-slate-800 hover:text-white group relative`}
+            >
+              <RefreshCw size={18} className={`group-hover:text-blue-400 ${isSyncing ? 'animate-spin text-blue-500' : ''}`} />
+              {isSyncing ? 'Synchronisiere...' : 'Server Sync'}
+              {syncError && <div className="absolute right-4 w-2 h-2 bg-red-500 rounded-full"></div>}
+            </button>
           </div>
         </nav>
 
@@ -604,7 +610,7 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
-        
+
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
@@ -613,33 +619,33 @@ export default function App() {
                 <p className="text-gray-500">Verwalten Sie aktive Installationen und Module.</p>
               </div>
               <div className="flex flex-col md:flex-row gap-3 w-full xl:w-auto">
-                 <button 
+                <button
                   onClick={() => setShowCreateModal(true)}
                   className="px-4 py-2 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 text-sm font-bold shadow-sm hover:bg-slate-800 whitespace-nowrap order-1 md:order-3"
-                 >
-                    <Plus size={16} /> Neue Lizenz
-                 </button>
-                 
+                >
+                  <Plus size={16} /> Neue Lizenz
+                </button>
+
                 {/* Status Filter */}
                 <div className="relative w-full md:w-48 order-2">
-                    <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
-                    <select
-                        value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value as any)}
-                        className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm bg-white appearance-none cursor-pointer hover:bg-gray-50"
-                    >
-                        <option value="all">Alle Status</option>
-                        <option value="active">Nur Aktive</option>
-                        <option value="expired">Nur Abgelaufene</option>
-                        <option value="suspended">Nur Gesperrte</option>
-                    </select>
+                  <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
+                  <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value as any)}
+                    className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm bg-white appearance-none cursor-pointer hover:bg-gray-50"
+                  >
+                    <option value="all">Alle Status</option>
+                    <option value="active">Nur Aktive</option>
+                    <option value="expired">Nur Abgelaufene</option>
+                    <option value="suspended">Nur Gesperrte</option>
+                  </select>
                 </div>
 
                 <div className="relative w-full md:w-64 order-3 md:order-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input 
-                    type="text" 
-                    placeholder="Suche..." 
+                  <input
+                    type="text"
+                    placeholder="Suche..."
                     className="pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 w-full"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -669,21 +675,21 @@ export default function App() {
 
               {/* Dynamic Module Stats */}
               {modules.map(module => {
-                  const Icon = ICON_REGISTRY[module.iconName] || ICON_REGISTRY['Server'];
-                  const count = licenses.filter(l => l.features[module.id]).length;
-                  return (
-                      <div key={module.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center group">
-                          <div>
-                              <div className="text-gray-500 text-xs font-bold uppercase mb-1 truncate max-w-[120px]" title={module.label}>
-                                  {module.label}
-                              </div>
-                              <div className="text-3xl font-bold text-gray-900">{count}</div>
-                          </div>
-                          <div className="text-gray-300 bg-gray-50 p-3 rounded-lg group-hover:bg-red-50 group-hover:text-red-500 transition-colors">
-                              <Icon size={20} />
-                          </div>
+                const Icon = ICON_REGISTRY[module.iconName] || ICON_REGISTRY['Server'];
+                const count = licenses.filter(l => l.features[module.id]).length;
+                return (
+                  <div key={module.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center group">
+                    <div>
+                      <div className="text-gray-500 text-xs font-bold uppercase mb-1 truncate max-w-[120px]" title={module.label}>
+                        {module.label}
                       </div>
-                  );
+                      <div className="text-3xl font-bold text-gray-900">{count}</div>
+                    </div>
+                    <div className="text-gray-300 bg-gray-50 p-3 rounded-lg group-hover:bg-red-50 group-hover:text-red-500 transition-colors">
+                      <Icon size={20} />
+                    </div>
+                  </div>
+                );
               })}
             </div>
 
@@ -694,9 +700,9 @@ export default function App() {
                 </div>
               ) : (
                 filteredLicenses.map(license => (
-                  <LicenseCard 
-                    key={license.id} 
-                    license={license} 
+                  <LicenseCard
+                    key={license.id}
+                    license={license}
                     onUpdateFeatures={handleUpdateFeatures}
                     onUpdateDetails={handleUpdateDetails}
                     onRevoke={handleRevoke}
@@ -724,13 +730,13 @@ export default function App() {
                   </div>
                   <h3 className="text-lg font-medium text-gray-900">Alles erledigt!</h3>
                   <p className="text-gray-500 mb-4">Momentan liegen keine offenen Anfragen vor.</p>
-                  
-                  <button 
+
+                  <button
                     onClick={() => handleServerSync()}
                     className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-2 rounded transition-colors"
                   >
-                     <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} />
-                     {isSyncing ? 'Prüfe Server...' : 'Jetzt auf neue Anfragen prüfen'}
+                    <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} />
+                    {isSyncing ? 'Prüfe Server...' : 'Jetzt auf neue Anfragen prüfen'}
                   </button>
                 </div>
               ) : (
@@ -742,46 +748,46 @@ export default function App() {
                           <h3 className="text-lg font-bold text-gray-900">{req.organization}</h3>
                           <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">Neu</span>
                           {req.id.includes('auto') && (
-                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-mono border border-gray-200">
-                                  Auto-Reg
-                              </span>
+                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-mono border border-gray-200">
+                              Auto-Reg
+                            </span>
                           )}
                         </div>
                         <p className="text-sm text-gray-600 mb-2">{req.contactPerson} &lt;{req.email}&gt;</p>
                         <div className="flex items-center gap-2">
-                             <div className="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-2 py-1 rounded border border-gray-200">
-                                Domain: {normalizeDomain(req.requestedDomain)}
-                             </div>
-                             <div className="text-[10px] text-gray-400 font-mono">
-                                ID: {req.id}
-                             </div>
+                          <div className="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-2 py-1 rounded border border-gray-200">
+                            Domain: {normalizeDomain(req.requestedDomain)}
+                          </div>
+                          <div className="text-[10px] text-gray-400 font-mono">
+                            ID: {req.id}
+                          </div>
                         </div>
                         {req.note && (
-                           <div className="mt-3 text-sm text-gray-600 italic border-l-2 border-blue-200 pl-3">
-                             "{req.note}"
-                           </div>
+                          <div className="mt-3 text-sm text-gray-600 italic border-l-2 border-blue-200 pl-3">
+                            "{req.note}"
+                          </div>
                         )}
                       </div>
                       <div className="flex items-center gap-3">
-                         <button 
-                            onClick={async () => {
-                              if (confirm("Anfrage wirklich ablehnen?")) {
-                                await DB.deleteRequest(req.id);
-                                await pushToServer('delete_request', { id: req.id });
-                                refreshData();
-                              }
-                            }}
-                            className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded-lg"
-                         >
-                           Ablehnen
-                         </button>
-                         <button 
-                            onClick={() => setSelectedRequest(req)}
-                            className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm shadow-red-200 flex items-center gap-2"
-                         >
-                           <KeyRound size={16} />
-                           Freigeben
-                         </button>
+                        <button
+                          onClick={async () => {
+                            if (confirm("Anfrage wirklich ablehnen?")) {
+                              await DB.deleteRequest(req.id);
+                              await pushToServer('delete_request', { id: req.id });
+                              refreshData();
+                            }
+                          }}
+                          className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded-lg"
+                        >
+                          Ablehnen
+                        </button>
+                        <button
+                          onClick={() => setSelectedRequest(req)}
+                          className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm shadow-red-200 flex items-center gap-2"
+                        >
+                          <KeyRound size={16} />
+                          Freigeben
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -792,8 +798,8 @@ export default function App() {
         )}
 
         {activeTab === 'settings' && (
-          <SettingsView 
-            onRefreshData={refreshData} 
+          <SettingsView
+            onRefreshData={refreshData}
             modules={modules}
             apiLogs={apiLogs}
             onApiRequest={handleApiRequest}
@@ -804,7 +810,7 @@ export default function App() {
       </main>
 
       {selectedRequest && (
-        <RequestModal 
+        <RequestModal
           request={selectedRequest}
           onClose={() => setSelectedRequest(null)}
           onApprove={handleApprove}
@@ -814,11 +820,11 @@ export default function App() {
       )}
 
       {showCreateModal && (
-          <CreateLicenseModal
-            onClose={() => setShowCreateModal(false)}
-            onSave={handleManualCreate}
-            availableModules={modules}
-          />
+        <CreateLicenseModal
+          onClose={() => setShowCreateModal(false)}
+          onSave={handleManualCreate}
+          availableModules={modules}
+        />
       )}
     </div>
   );
