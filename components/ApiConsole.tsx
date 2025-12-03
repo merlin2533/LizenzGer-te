@@ -56,6 +56,7 @@ RewriteRule ^(.*)$ index.php [QSA,L]
     Header set Access-Control-Allow-Headers "Content-Type, Origin, X-Auth-Token"
 </IfModule>`;
 
+  // THE PHP SCRIPT CONTENT
   const phpBackendCode = `<?php
 /*
  * SERVER BACKEND IMPLEMENTATION - FFw License Manager

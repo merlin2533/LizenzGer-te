@@ -4,7 +4,6 @@ import { License, LicenseRequest, FeatureSet, DEFAULT_FEATURES, ApiLogEntry, Mod
 import { LicenseCard } from './components/LicenseCard';
 import { RequestModal } from './components/RequestModal';
 import { CreateLicenseModal } from './components/CreateLicenseModal';
-import { ApiConsole } from './components/ApiConsole';
 import { SettingsView } from './components/SettingsView';
 import { LayoutDashboard, Inbox, KeyRound, Search, Flame, ServerCog, Activity, Database, Download, Settings, Plus, UserPlus, Filter, RefreshCw, AlertCircle } from 'lucide-react';
 import * as DB from './services/database';
@@ -53,17 +52,21 @@ export default function App() {
   }, [dbReady]);
 
   const refreshData = async () => {
-    const lics = await DB.getLicenses();
-    const reqs = await DB.getRequests();
-    const logs = await DB.getLogs();
-    const mods = await DB.getModules();
-    const url = await DB.getSetting('apiUrl');
-    
-    setLicenses(lics);
-    setRequests(reqs);
-    setApiLogs(logs);
-    setModules(mods);
-    if (url) setApiUrl(url);
+    try {
+        const lics = await DB.getLicenses();
+        const reqs = await DB.getRequests();
+        const logs = await DB.getLogs();
+        const mods = await DB.getModules();
+        const url = await DB.getSetting('apiUrl');
+        
+        setLicenses(lics);
+        setRequests(reqs);
+        setApiLogs(logs);
+        setModules(mods);
+        if (url) setApiUrl(url);
+    } catch(e) {
+        console.error("Error refreshing data:", e);
+    }
   };
 
   const handleUpdateApiUrl = async (url: string) => {
@@ -248,9 +251,10 @@ export default function App() {
                  json: async () => ({
                      status: 'ok',
                      licenses: lics,
-                     requests: reqs
+                     requests: reqs,
+                     logs: [] // Add logs for simulation
                  }),
-                 text: async () => JSON.stringify({ status: 'ok', licenses: lics, requests: reqs })
+                 text: async () => JSON.stringify({ status: 'ok', licenses: lics, requests: reqs, logs: [] })
              };
         }
         
@@ -353,10 +357,11 @@ export default function App() {
             console.error("Sync Error:", data.error);
             if (!silent) alert("Sync Fehler: " + data.error);
             setSyncError(true);
-        } else if (data.licenses && data.requests) {
-            await DB.mergeExternalData(data.licenses, data.requests);
+        } else if (data.licenses || data.requests) {
+            // FIX: Include logs in sync
+            await DB.mergeExternalData(data.licenses || [], data.requests || [], data.logs || []);
             await refreshData();
-            if (!silent) alert("Synchronisation erfolgreich!");
+            if (!silent) alert(`Synchronisation erfolgreich! ${data.requests?.length || 0} Anfragen, ${data.licenses?.length || 0} Lizenzen geladen.`);
         }
     } catch (e: any) {
         console.error("Sync Network Error:", e.message);

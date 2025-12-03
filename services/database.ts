@@ -368,6 +368,13 @@ export const getRawTableData = async (tableName: string): Promise<any[]> => {
     }
 };
 
+// Helper for safe column access
+const getCol = (row: any[], cols: string[], name: string, defaultValue: any = undefined) => {
+    const index = cols.indexOf(name);
+    if (index === -1) return defaultValue;
+    return row[index];
+}
+
 // LICENSES
 export const getLicenses = async (): Promise<License[]> => {
   if (!db) await initDatabase();
@@ -377,21 +384,25 @@ export const getLicenses = async (): Promise<License[]> => {
   const columns = res[0].columns;
   const values = res[0].values;
   
+  console.log(`DB: Found ${values.length} licenses`);
+
   return values.map((row: any[]) => {
-    const features = JSON.parse(row[columns.indexOf('features')]);
+    const featuresRaw = getCol(row, columns, 'features', '{}');
+    const features = typeof featuresRaw === 'string' ? JSON.parse(featuresRaw) : featuresRaw;
+    
     return {
-      id: row[columns.indexOf('id')],
-      organization: row[columns.indexOf('organization')],
-      contactPerson: row[columns.indexOf('contactPerson')],
-      email: row[columns.indexOf('email')],
-      phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
-      domain: row[columns.indexOf('domain')],
-      key: row[columns.indexOf('key')],
-      validUntil: row[columns.indexOf('validUntil')],
-      status: row[columns.indexOf('status')],
+      id: getCol(row, columns, 'id'),
+      organization: getCol(row, columns, 'organization'),
+      contactPerson: getCol(row, columns, 'contactPerson'),
+      email: getCol(row, columns, 'email'),
+      phoneNumber: getCol(row, columns, 'phoneNumber'),
+      domain: getCol(row, columns, 'domain'),
+      key: getCol(row, columns, 'key'),
+      validUntil: getCol(row, columns, 'validUntil'),
+      status: getCol(row, columns, 'status'),
       features,
-      createdAt: row[columns.indexOf('createdAt')],
-      note: columns.includes('note') ? row[columns.indexOf('note')] : undefined
+      createdAt: getCol(row, columns, 'createdAt'),
+      note: getCol(row, columns, 'note')
     } as License;
   });
 };
@@ -463,16 +474,18 @@ export const getRequests = async (): Promise<LicenseRequest[]> => {
   if (!res.length) return [];
 
   const columns = res[0].columns;
+  console.log(`DB: Found ${res[0].values.length} requests`);
+
   return res[0].values.map((row: any[]) => ({
-    id: row[columns.indexOf('id')],
-    organization: row[columns.indexOf('organization')],
-    contactPerson: row[columns.indexOf('contactPerson')],
-    email: row[columns.indexOf('email')],
-    phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
-    requestedDomain: row[columns.indexOf('requestedDomain')],
-    requestDate: row[columns.indexOf('requestDate')],
-    note: row[columns.indexOf('note')],
-    customMessage: columns.includes('customMessage') ? row[columns.indexOf('customMessage')] : undefined
+    id: getCol(row, columns, 'id'),
+    organization: getCol(row, columns, 'organization'),
+    contactPerson: getCol(row, columns, 'contactPerson'),
+    email: getCol(row, columns, 'email'),
+    phoneNumber: getCol(row, columns, 'phoneNumber'),
+    requestedDomain: getCol(row, columns, 'requestedDomain'),
+    requestDate: getCol(row, columns, 'requestDate'),
+    note: getCol(row, columns, 'note'),
+    customMessage: getCol(row, columns, 'customMessage')
   })) as LicenseRequest[];
 };
 
@@ -484,15 +497,15 @@ export const findRequestByDomain = async (domain: string): Promise<LicenseReques
     const columns = res[0].columns;
     const row = res[0].values[0];
     return {
-        id: row[columns.indexOf('id')],
-        organization: row[columns.indexOf('organization')],
-        contactPerson: row[columns.indexOf('contactPerson')],
-        email: row[columns.indexOf('email')],
-        phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
-        requestedDomain: row[columns.indexOf('requestedDomain')],
-        requestDate: row[columns.indexOf('requestDate')],
-        note: row[columns.indexOf('note')],
-        customMessage: columns.includes('customMessage') ? row[columns.indexOf('customMessage')] : undefined
+        id: getCol(row, columns, 'id'),
+        organization: getCol(row, columns, 'organization'),
+        contactPerson: getCol(row, columns, 'contactPerson'),
+        email: getCol(row, columns, 'email'),
+        phoneNumber: getCol(row, columns, 'phoneNumber'),
+        requestedDomain: getCol(row, columns, 'requestedDomain'),
+        requestDate: getCol(row, columns, 'requestDate'),
+        note: getCol(row, columns, 'note'),
+        customMessage: getCol(row, columns, 'customMessage')
     } as LicenseRequest;
 };
 
@@ -548,14 +561,14 @@ export const getLogs = async (): Promise<ApiLogEntry[]> => {
 
   const columns = res[0].columns;
   return res[0].values.map((row: any[]) => ({
-    id: row[columns.indexOf('id')],
-    timestamp: row[columns.indexOf('timestamp')],
-    method: row[columns.indexOf('method')],
-    endpoint: row[columns.indexOf('endpoint')],
-    sourceUrl: row[columns.indexOf('sourceUrl')],
-    providedKey: row[columns.indexOf('providedKey')],
-    responseStatus: row[columns.indexOf('responseStatus')],
-    responseBody: row[columns.indexOf('responseBody')]
+    id: getCol(row, columns, 'id'),
+    timestamp: getCol(row, columns, 'timestamp'),
+    method: getCol(row, columns, 'method'),
+    endpoint: getCol(row, columns, 'endpoint'),
+    sourceUrl: getCol(row, columns, 'sourceUrl'),
+    providedKey: getCol(row, columns, 'providedKey'),
+    responseStatus: getCol(row, columns, 'responseStatus'),
+    responseBody: getCol(row, columns, 'responseBody')
   })) as ApiLogEntry[];
 };
 
@@ -582,19 +595,21 @@ export const findLicenseByKey = async (key: string): Promise<License | null> => 
   const row = res[0].values[0];
   const columns = res[0].columns;
   
+  const featuresRaw = getCol(row, columns, 'features', '{}');
+  
   return {
-    id: row[columns.indexOf('id')],
-    organization: row[columns.indexOf('organization')],
-    contactPerson: row[columns.indexOf('contactPerson')],
-    email: row[columns.indexOf('email')],
-    phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
-    domain: row[columns.indexOf('domain')],
-    key: row[columns.indexOf('key')],
-    validUntil: row[columns.indexOf('validUntil')],
-    status: row[columns.indexOf('status')],
-    features: JSON.parse(row[columns.indexOf('features')]),
-    createdAt: row[columns.indexOf('createdAt')],
-    note: columns.includes('note') ? row[columns.indexOf('note')] : undefined
+    id: getCol(row, columns, 'id'),
+    organization: getCol(row, columns, 'organization'),
+    contactPerson: getCol(row, columns, 'contactPerson'),
+    email: getCol(row, columns, 'email'),
+    phoneNumber: getCol(row, columns, 'phoneNumber'),
+    domain: getCol(row, columns, 'domain'),
+    key: getCol(row, columns, 'key'),
+    validUntil: getCol(row, columns, 'validUntil'),
+    status: getCol(row, columns, 'status'),
+    features: typeof featuresRaw === 'string' ? JSON.parse(featuresRaw) : featuresRaw,
+    createdAt: getCol(row, columns, 'createdAt'),
+    note: getCol(row, columns, 'note')
   };
 };
 
@@ -606,19 +621,20 @@ export const findLicenseByDomain = async (domain: string): Promise<License | nul
   
   const row = res[0].values[0];
   const columns = res[0].columns;
+  const featuresRaw = getCol(row, columns, 'features', '{}');
   
   return {
-    id: row[columns.indexOf('id')],
-    organization: row[columns.indexOf('organization')],
-    contactPerson: row[columns.indexOf('contactPerson')],
-    email: row[columns.indexOf('email')],
-    phoneNumber: columns.includes('phoneNumber') ? row[columns.indexOf('phoneNumber')] : undefined,
-    domain: row[columns.indexOf('domain')],
-    key: row[columns.indexOf('key')],
-    validUntil: row[columns.indexOf('validUntil')],
-    status: row[columns.indexOf('status')],
-    features: JSON.parse(row[columns.indexOf('features')]),
-    createdAt: row[columns.indexOf('createdAt')],
-    note: columns.includes('note') ? row[columns.indexOf('note')] : undefined
+    id: getCol(row, columns, 'id'),
+    organization: getCol(row, columns, 'organization'),
+    contactPerson: getCol(row, columns, 'contactPerson'),
+    email: getCol(row, columns, 'email'),
+    phoneNumber: getCol(row, columns, 'phoneNumber'),
+    domain: getCol(row, columns, 'domain'),
+    key: getCol(row, columns, 'key'),
+    validUntil: getCol(row, columns, 'validUntil'),
+    status: getCol(row, columns, 'status'),
+    features: typeof featuresRaw === 'string' ? JSON.parse(featuresRaw) : featuresRaw,
+    createdAt: getCol(row, columns, 'createdAt'),
+    note: getCol(row, columns, 'note')
   };
 };
