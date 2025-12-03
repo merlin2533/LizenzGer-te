@@ -477,6 +477,7 @@ if (is_array($input) && isset($input['action'])) {
         ]);
         exit;
     }
+    }
 
 
 // 2. PUBLIC API
