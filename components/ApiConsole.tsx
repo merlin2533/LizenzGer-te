@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Globe, Key, Code, ArrowRight, Copy, Server, ServerCog, AlertTriangle, FileJson, Terminal, Download, FileCode, CheckCircle2 } from 'lucide-react';
+import { Send, Globe, Key, ArrowRight, Copy, ServerCog, Terminal, Download, FileCode, CheckCircle2, FileJson } from 'lucide-react';
 import { ApiLogEntry } from '../types';
 
 interface ApiConsoleProps {
@@ -44,32 +44,6 @@ export const ApiConsole: React.FC<ApiConsoleProps> = ({ onApiRequest, logs, apiU
     document.body.removeChild(element);
   };
 
-  // Generate Snippets
-  const jsFetch = `// NOTE: Funktioniert jetzt direkt hier im Browser!
-fetch('${apiUrl}', {
-  method: 'POST',
-  headers: {
-    'Origin': 'https://${sourceUrl}',
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    key: '${apiKey || ''}' // Leer lassen für Auto-Reg
-  })
-})
-.then(res => res.json())
-.then(data => {
-  console.log('Server Response:', data);
-  if(data.status === 'requested') {
-    console.log('Anfrage erstellt. Bitte auf Freischaltung warten.');
-  } else if(data.status === 'expired') {
-    console.error('LIZENZ ABGELAUFEN am ' + data.validUntil);
-  } else if (data.key) {
-    console.log('LIZENZ ERHALTEN:', data.key);
-    console.log('MODULE:', data.modules);
-  }
-})
-.catch(err => console.error('API Error:', err));`;
-
   const htaccessCode = `RewriteEngine On
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
@@ -107,38 +81,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // --- MODULE DEFINITIONS ---
-// Definition der Module für die detaillierte JSON-Antwort
 $moduleConfig = [
-    'inventory' => [
-        'title' => 'Grundinventar', 
-        'icon' => 'Server', 
-        'desc' => 'Verwaltung von Geräten und Lagerorten'
-    ],
-    'respiratory' => [
-        'title' => 'Atemschutz', 
-        'icon' => 'Wind', 
-        'desc' => 'Atemschutzwerkstatt & Prüfungen'
-    ],
-    'hoses' => [
-        'title' => 'Schlauchpflege', 
-        'icon' => 'Droplet', 
-        'desc' => 'Schlauchwäsche & Prüfung'
-    ],
-    'vehicles' => [
-        'title' => 'Fahrtenbuch', 
-        'icon' => 'Truck', 
-        'desc' => 'Digitales Fahrtenbuch & Tanken'
-    ],
-    'apiAccess' => [
-        'title' => 'API Zugriff', 
-        'icon' => 'Database', 
-        'desc' => 'Zugriff für externe Systeme'
-    ],
-    'personnel' => [
-        'title' => 'Personal', 
-        'icon' => 'Users', 
-        'desc' => 'Mannschaftsverwaltung & Lehrgänge'
-    ]
+    'inventory' => ['title' => 'Grundinventar', 'icon' => 'Server', 'desc' => 'Verwaltung von Geräten und Lagerorten'],
+    'respiratory' => ['title' => 'Atemschutz', 'icon' => 'Wind', 'desc' => 'Atemschutzwerkstatt & Prüfungen'],
+    'hoses' => ['title' => 'Schlauchpflege', 'icon' => 'Droplet', 'desc' => 'Schlauchwäsche & Prüfung'],
+    'vehicles' => ['title' => 'Fahrtenbuch', 'icon' => 'Truck', 'desc' => 'Digitales Fahrtenbuch & Tanken'],
+    'apiAccess' => ['title' => 'API Zugriff', 'icon' => 'Database', 'desc' => 'Zugriff für externe Systeme'],
+    'personnel' => ['title' => 'Personal', 'icon' => 'Users', 'desc' => 'Mannschaftsverwaltung & Lehrgänge']
 ];
 
 // --- HELPER ---
@@ -147,10 +96,7 @@ function getDb($file) {
     try {
         $db = new SQLite3($file);
         $db->busyTimeout(5000);
-        if ($init) {
-            initDb($db);
-        }
-        // Migrations
+        if ($init) { initDb($db); }
         checkMigrations($db);
         return $db;
     } catch (Exception $e) {
@@ -187,10 +133,20 @@ function initDb($db) {
       phoneNumber TEXT,
       customMessage TEXT
     )");
+
+    $db->exec("CREATE TABLE IF NOT EXISTS logs (
+      id TEXT PRIMARY KEY,
+      timestamp TEXT,
+      method TEXT,
+      endpoint TEXT,
+      sourceUrl TEXT,
+      providedKey TEXT,
+      responseStatus INTEGER,
+      responseBody TEXT
+    )");
 }
 
 function checkMigrations($db) {
-    // Add columns if they don't exist
     $cols = $db->query("PRAGMA table_info(requests)");
     $hasCustomMessage = false;
     while ($row = $cols->fetchArray()) {
@@ -198,6 +154,21 @@ function checkMigrations($db) {
     }
     if (!$hasCustomMessage) {
         $db->exec("ALTER TABLE requests ADD COLUMN customMessage TEXT");
+    }
+    
+    // Check for logs table
+    $tables = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='logs'");
+    if (!$tables->fetchArray()) {
+        $db->exec("CREATE TABLE IF NOT EXISTS logs (
+          id TEXT PRIMARY KEY,
+          timestamp TEXT,
+          method TEXT,
+          endpoint TEXT,
+          sourceUrl TEXT,
+          providedKey TEXT,
+          responseStatus INTEGER,
+          responseBody TEXT
+        )");
     }
 }
 
@@ -207,31 +178,40 @@ function normalizeDomain($url) {
     $url = preg_replace('#^https?://#', '', $url);
     $parts = explode('/', $url);
     $url = $parts[0];
-    $parts = explode(':', $url); // Remove port
+    $parts = explode(':', $url); 
     return $parts[0];
 }
 
 function buildRichModules($featuresJson, $config) {
     $features = json_decode($featuresJson, true);
     if (!is_array($features)) $features = [];
-    
     $richList = [];
-    
-    // Iterate over config to ensure all known modules are listed (or just active ones?)
-    // Usually client wants list of capabilities. Let's list all configured ones with status.
     foreach ($config as $key => $def) {
         $isActive = isset($features[$key]) && $features[$key] === true;
-        
         $richList[] = [
             'technicalName' => $key,
             'title' => $def['title'],
             'description' => $def['desc'],
-            'iconName' => $def['icon'], // For Lucide React mapping
-            'iconUrl' => null, // Placeholder if client needs URL
+            'iconName' => $def['icon'], 
             'active' => $isActive
         ];
     }
     return $richList;
+}
+
+function logAccess($db, $sourceUrl, $key, $status, $body) {
+    try {
+        $id = uniqid('log_');
+        $time = date('c');
+        $stmt = $db->prepare("INSERT INTO logs VALUES (:id, :time, 'POST', 'api.php', :source, :key, :status, :body)");
+        $stmt->bindValue(':id', $id);
+        $stmt->bindValue(':time', $time);
+        $stmt->bindValue(':source', $sourceUrl);
+        $stmt->bindValue(':key', $key ?? '');
+        $stmt->bindValue(':status', $status);
+        $stmt->bindValue(':body', is_string($body) ? $body : json_encode($body));
+        $stmt->execute();
+    } catch(Exception $e) { /* ignore log errors */ }
 }
 
 // --- MAIN LOGIC ---
@@ -240,7 +220,6 @@ $db = getDb($dbFile);
 
 // ADMIN ACTIONS
 if (isset($input['action'])) {
-    // Auth Check
     if (!isset($input['secret']) || $input['secret'] !== $adminSecret) {
         http_response_code(403);
         echo json_encode(['error' => 'Invalid Secret']);
@@ -248,7 +227,6 @@ if (isset($input['action'])) {
     }
 
     if ($input['action'] === 'sync_admin') {
-        // PULL: Get all data
         $licenses = [];
         $res = $db->query("SELECT * FROM licenses");
         while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
@@ -261,13 +239,23 @@ if (isset($input['action'])) {
         while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
             $requests[] = $row;
         }
+        
+        $logs = [];
+        $res = $db->query("SELECT * FROM logs ORDER BY timestamp DESC LIMIT 50");
+        while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+            $logs[] = $row;
+        }
 
-        echo json_encode(['status' => 'ok', 'licenses' => $licenses, 'requests' => $requests]);
+        echo json_encode([
+            'status' => 'ok', 
+            'licenses' => $licenses, 
+            'requests' => $requests,
+            'logs' => $logs
+        ]);
         exit;
     }
 
     if ($input['action'] === 'push_license') {
-        // PUSH: Create/Update License
         $lic = $input['license'];
         $stmt = $db->prepare("INSERT OR REPLACE INTO licenses (id, organization, contactPerson, email, domain, key, validUntil, status, features, createdAt, phoneNumber, note) VALUES (:id, :org, :contact, :email, :domain, :key, :valid, :status, :features, :created, :phone, :note)");
         $stmt->bindValue(':id', $lic['id']);
@@ -288,7 +276,6 @@ if (isset($input['action'])) {
     }
 
     if ($input['action'] === 'delete_request') {
-        // PUSH: Delete Request (Approved or Rejected)
         $id = $input['id'];
         $stmt = $db->prepare("DELETE FROM requests WHERE id = :id");
         $stmt->bindValue(':id', $id);
@@ -296,9 +283,8 @@ if (isset($input['action'])) {
         echo json_encode(['status' => 'ok']);
         exit;
     }
-
+    
     if ($input['action'] === 'delete_license') {
-        // PUSH: Delete License Permanently
         $id = $input['id'];
         $stmt = $db->prepare("DELETE FROM licenses WHERE id = :id");
         $stmt->bindValue(':id', $id);
@@ -308,7 +294,6 @@ if (isset($input['action'])) {
     }
 
     if ($input['action'] === 'update_request') {
-        // PUSH: Update Request (e.g. customMessage)
         $req = $input['request'];
         $stmt = $db->prepare("INSERT OR REPLACE INTO requests (id, organization, contactPerson, email, requestedDomain, requestDate, note, phoneNumber, customMessage) VALUES (:id, :org, :contact, :email, :domain, :date, :note, :phone, :msg)");
         $stmt->bindValue(':id', $req['id']);
@@ -326,13 +311,17 @@ if (isset($input['action'])) {
     }
 }
 
-// 2. LICENSE CHECK / REGISTRATION (PUBLIC)
+// 2. PUBLIC API
 $origin = $_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '';
 $domain = normalizeDomain($origin);
 $providedKey = $input['key'] ?? null;
 
+// RESPONSE DATA
+$responseStatus = 200;
+$responseBody = [];
+
 if (!$providedKey) {
-    // AUTO-RECOVERY: Check if we know this domain
+    // AUTO-RECOVERY
     $stmt = $db->prepare("SELECT * FROM licenses WHERE lower(domain) = :domain");
     $stmt->bindValue(':domain', $domain, SQLITE3_TEXT);
     $res = $stmt->execute();
@@ -345,7 +334,7 @@ if (!$providedKey) {
         $daysRemaining = $now->diff($validUntil)->days;
         if($validUntil < $now) $daysRemaining = 0;
 
-        echo json_encode([
+        $responseBody = [
             'status' => $isExpired ? 'expired' : 'active',
             'message' => 'License found via Domain Match.',
             'key' => $license['key'],
@@ -353,79 +342,79 @@ if (!$providedKey) {
             'daysRemaining' => $daysRemaining,
             'modules' => buildRichModules($license['features'], $moduleConfig),
             'features' => $isExpired ? new stdClass() : json_decode($license['features'], true)
-        ]);
-        exit;
-    }
-
-    // Check if pending request exists
-    $stmt = $db->prepare("SELECT * FROM requests WHERE lower(requestedDomain) = :domain");
-    $stmt->bindValue(':domain', $domain, SQLITE3_TEXT);
-    $res = $stmt->execute();
-    $req = $res->fetchArray(SQLITE3_ASSOC);
-
-    if ($req) {
-        echo json_encode([
-            'status' => 'pending', 
-            'message' => $req['customMessage'] ? $req['customMessage'] : 'Registrierungsanfrage wartet auf Freigabe.',
-            'requestId' => $req['id']
-        ]);
+        ];
     } else {
-        // Create Request
-        $id = uniqid('req_');
-        $date = date('c');
-        $stmt = $db->prepare("INSERT INTO requests (id, organization, contactPerson, email, requestedDomain, requestDate, note, customMessage) VALUES (:id, 'Unbekannt', 'Admin', 'admin@' || :domain, :domain, :date, 'Auto-Request', 'Bitte warten...')");
-        $stmt->bindValue(':id', $id, SQLITE3_TEXT);
+        // PENDING REQUEST
+        $stmt = $db->prepare("SELECT * FROM requests WHERE lower(requestedDomain) = :domain");
         $stmt->bindValue(':domain', $domain, SQLITE3_TEXT);
-        $stmt->bindValue(':date', $date, SQLITE3_TEXT);
-        $stmt->execute();
+        $res = $stmt->execute();
+        $req = $res->fetchArray(SQLITE3_ASSOC);
 
-        http_response_code(201);
-        echo json_encode([
-            'status' => 'requested',
-            'message' => 'Anfrage erstellt.',
-            'requestId' => $id
-        ]);
+        if ($req) {
+            $responseBody = [
+                'status' => 'pending', 
+                'message' => $req['customMessage'] ? $req['customMessage'] : 'Registrierungsanfrage wartet auf Freigabe.',
+                'requestId' => $req['id']
+            ];
+        } else {
+            // CREATE REQUEST
+            $id = uniqid('req_');
+            $date = date('c');
+            $stmt = $db->prepare("INSERT INTO requests (id, organization, contactPerson, email, requestedDomain, requestDate, note, customMessage) VALUES (:id, 'Unbekannt', 'Admin', 'admin@' || :domain, :domain, :date, 'Auto-Request', 'Bitte warten...')");
+            $stmt->bindValue(':id', $id, SQLITE3_TEXT);
+            $stmt->bindValue(':domain', $domain, SQLITE3_TEXT);
+            $stmt->bindValue(':date', $date, SQLITE3_TEXT);
+            $stmt->execute();
+
+            $responseStatus = 201;
+            http_response_code(201);
+            $responseBody = [
+                'status' => 'requested',
+                'message' => 'Anfrage erstellt.',
+                'requestId' => $id
+            ];
+        }
     }
-    exit;
+} else {
+    // VALIDATE KEY
+    $stmt = $db->prepare("SELECT * FROM licenses WHERE key = :key");
+    $stmt->bindValue(':key', $providedKey, SQLITE3_TEXT);
+    $res = $stmt->execute();
+    $license = $res->fetchArray(SQLITE3_ASSOC);
+
+    if (!$license) {
+        $responseStatus = 403;
+        http_response_code(403);
+        $responseBody = ['error' => 'Invalid License Key'];
+    } elseif (normalizeDomain($license['domain']) !== $domain) {
+        $responseStatus = 403;
+        http_response_code(403);
+        $responseBody = ['error' => 'Domain Mismatch'];
+    } elseif ($license['status'] === 'suspended') {
+        $responseStatus = 403;
+        http_response_code(403);
+        $responseBody = ['error' => 'License Suspended'];
+    } else {
+        $now = new DateTime();
+        $validUntil = new DateTime($license['validUntil']);
+        $isExpired = $validUntil < $now;
+        $daysRemaining = $now->diff($validUntil)->days;
+        if($validUntil < $now) $daysRemaining = 0;
+
+        $responseBody = [
+            'status' => $isExpired ? 'expired' : 'valid',
+            'validUntil' => $license['validUntil'],
+            'daysRemaining' => $daysRemaining,
+            'modules' => buildRichModules($license['features'], $moduleConfig),
+            'features' => $isExpired ? new stdClass() : json_decode($license['features'], true)
+        ];
+    }
 }
 
-// VALIDATE KEY
-$stmt = $db->prepare("SELECT * FROM licenses WHERE key = :key");
-$stmt->bindValue(':key', $providedKey, SQLITE3_TEXT);
-$res = $stmt->execute();
-$license = $res->fetchArray(SQLITE3_ASSOC);
+// LOGGING
+logAccess($db, $domain, $providedKey, $responseStatus, $responseBody);
 
-if (!$license) {
-    http_response_code(403);
-    echo json_encode(['error' => 'Invalid License Key']);
-    exit;
-}
-
-if (normalizeDomain($license['domain']) !== $domain) {
-    http_response_code(403);
-    echo json_encode(['error' => 'Domain Mismatch']);
-    exit;
-}
-
-if ($license['status'] === 'suspended') {
-    http_response_code(403);
-    echo json_encode(['error' => 'License Suspended']);
-    exit;
-}
-
-$now = new DateTime();
-$validUntil = new DateTime($license['validUntil']);
-$isExpired = $validUntil < $now;
-$daysRemaining = $now->diff($validUntil)->days;
-if($validUntil < $now) $daysRemaining = 0;
-
-echo json_encode([
-    'status' => $isExpired ? 'expired' : 'valid',
-    'validUntil' => $license['validUntil'],
-    'daysRemaining' => $daysRemaining,
-    'modules' => buildRichModules($license['features'], $moduleConfig),
-    'features' => $isExpired ? new stdClass() : json_decode($license['features'], true)
-]);
+echo json_encode($responseBody);
 ?>`;
 
   return (
@@ -584,9 +573,9 @@ echo json_encode([
                           </p>
                       </div>
                        <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
-                          <h4 className="font-bold text-orange-900 text-sm mb-1">Rich JSON</h4>
+                          <h4 className="font-bold text-orange-900 text-sm mb-1">Server Logging</h4>
                           <p className="text-xs text-orange-800">
-                              API gibt jetzt detaillierte Modul-Informationen (Titel, Icons, Status) zurück.
+                              Alle Anfragen werden auf dem Server protokolliert und in die App synchronisiert.
                           </p>
                       </div>
                   </div>
@@ -607,21 +596,6 @@ echo json_encode([
                   </div>
                   <div className="bg-slate-950 rounded-lg border border-slate-800 p-4 overflow-x-auto relative group">
                     <pre className="text-xs font-mono text-slate-300 leading-relaxed">{phpBackendCode}</pre>
-                  </div>
-
-                  <div className="flex justify-between items-center pt-4">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase flex items-center gap-2">
-                        <Code size={16} /> Client Integration (JavaScript)
-                    </h3>
-                    <button 
-                        onClick={() => copyToClipboard(jsFetch)}
-                        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                    >
-                        <Copy size={12} /> Code kopieren
-                    </button>
-                  </div>
-                  <div className="bg-slate-950 rounded-lg border border-slate-800 p-4 overflow-x-auto">
-                    <pre className="text-xs font-mono text-slate-300 leading-relaxed">{jsFetch}</pre>
                   </div>
               </div>
 

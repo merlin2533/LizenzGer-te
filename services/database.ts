@@ -196,6 +196,20 @@ const saveDatabase = () => {
   localStorage.setItem('ffw_license_db', json);
 };
 
+export const downloadDatabaseFile = async () => {
+    if (!db) await initDatabase();
+    const data = db.export();
+    const blob = new Blob([data], {type: 'application/x-sqlite3'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ffw_license_db_${new Date().toISOString().split('T')[0]}.sqlite`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
 export const uploadDatabaseFile = async (file: File): Promise<void> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -218,7 +232,7 @@ export const uploadDatabaseFile = async (file: File): Promise<void> => {
     });
 };
 
-export const mergeExternalData = async (externalLicenses: any[], externalRequests: any[]) => {
+export const mergeExternalData = async (externalLicenses: any[], externalRequests: any[], externalLogs?: any[]) => {
     if (!db) await initDatabase();
     
     // 1. Merge Licenses
@@ -265,6 +279,27 @@ export const mergeExternalData = async (externalLicenses: any[], externalRequest
         ]);
     });
     reqStmt.free();
+    
+    // 3. Merge Logs
+    if (externalLogs && externalLogs.length > 0) {
+        const logStmt = db.prepare(`INSERT OR REPLACE INTO logs 
+            (id, timestamp, method, endpoint, sourceUrl, providedKey, responseStatus, responseBody) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+            
+        externalLogs.forEach((log: any) => {
+             logStmt.run([
+                log.id,
+                log.timestamp,
+                log.method,
+                log.endpoint,
+                log.sourceUrl,
+                log.providedKey,
+                log.responseStatus,
+                log.responseBody
+             ]);
+        });
+        logStmt.free();
+    }
 
     saveDatabase();
 };
@@ -274,9 +309,11 @@ export const mergeExternalData = async (externalLicenses: any[], externalRequest
 // SETTINGS
 export const getSetting = async (key: string): Promise<string | null> => {
     if (!db) await initDatabase();
-    const res = db.exec("SELECT value FROM settings WHERE key = ?", [key]);
-    if (!res.length) return null;
-    return res[0].values[0][0];
+    try {
+        const res = db.exec("SELECT value FROM settings WHERE key = ?", [key]);
+        if (!res.length) return null;
+        return res[0].values[0][0];
+    } catch(e) { return null; }
 };
 
 export const saveSetting = async (key: string, value: string) => {
@@ -312,6 +349,24 @@ export const deleteModule = async (id: string) => {
     saveDatabase();
 };
 
+export const getRawTableData = async (tableName: string): Promise<any[]> => {
+    if (!db) await initDatabase();
+    try {
+        const res = db.exec(`SELECT * FROM ${tableName}`);
+        if (!res.length) return [];
+        const columns = res[0].columns;
+        return res[0].values.map((row: any[]) => {
+            const obj: any = {};
+            columns.forEach((col: string, i: number) => {
+                obj[col] = row[i];
+            });
+            return obj;
+        });
+    } catch (e) {
+        console.error(`Error fetching table ${tableName}`, e);
+        return [];
+    }
+};
 
 // LICENSES
 export const getLicenses = async (): Promise<License[]> => {
@@ -567,36 +622,3 @@ export const findLicenseByDomain = async (domain: string): Promise<License | nul
     note: columns.includes('note') ? row[columns.indexOf('note')] : undefined
   };
 };
-
-export const downloadDatabaseFile = async () => {
-    if (!db) return;
-    const data = db.export();
-    const blob = new Blob([data], { type: 'application/x-sqlite3' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ffw_licenses_${new Date().toISOString().split('T')[0]}.sqlite`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-};
-
-export const getRawTableData = async (tableName: string): Promise<any[]> => {
-    if (!db) await initDatabase();
-    try {
-        const res = db.exec(`SELECT * FROM ${tableName}`);
-        if (!res.length) return [];
-        const columns = res[0].columns;
-        const rows = res[0].values;
-        return rows.map((row: any[]) => {
-            const obj: any = {};
-            columns.forEach((col: string, idx: number) => {
-                obj[col] = row[idx];
-            });
-            return obj;
-        });
-    } catch(e) {
-        return [];
-    }
-}
