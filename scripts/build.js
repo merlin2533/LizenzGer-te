@@ -1,7 +1,6 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import sqlite3 from 'sqlite3';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,8 +30,25 @@ if (fs.existsSync(phpSource)) {
 
 // 3. Generate SQLite
 const dbPath = path.join(distDir, 'ffw_licenses.sqlite');
-if (!fs.existsSync(dbPath)) {
+
+const generateDb = async () => {
+    if (fs.existsSync(dbPath)) {
+        console.log('   ℹ️  Database already exists in dist/, skipping generation.');
+        return;
+    }
+
     console.log('🗄️  Generating SQLite database...');
+
+    let sqlite3;
+    try {
+        const module = await import('sqlite3');
+        sqlite3 = module.default;
+    } catch (e) {
+        console.warn('   ⚠️  WARNING: sqlite3 module not found. Skipping database generation.');
+        console.warn('       Please run "npm install" to install dependencies on the server.');
+        return;
+    }
+
     const db = new sqlite3.Database(dbPath);
 
     db.serialize(() => {
@@ -85,8 +101,8 @@ if (!fs.existsSync(dbPath)) {
             console.log('   ✅ Database ffw_licenses.sqlite created.');
         }
     });
-} else {
-    console.log('   ℹ️  Database already exists in dist/, skipping generation.');
-}
+};
 
-console.log('🎉 Build complete! Ready for deployment.');
+generateDb().then(() => {
+    console.log('🎉 Build complete! Ready for deployment.');
+});
