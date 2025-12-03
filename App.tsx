@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { License, LicenseRequest, FeatureSet, DEFAULT_FEATURES, ApiLogEntry, ModuleDefinition } from './types';
 import { LicenseCard } from './components/LicenseCard';
@@ -69,80 +68,6 @@ export default function App() {
   const handleUpdateApiUrl = async (url: string) => {
       await DB.saveSetting('apiUrl', url);
       setApiUrl(url);
-  };
-
-  const pushToServer = async (action: string, payload: any) => {
-     const secret = await DB.getSetting('adminSecret') || '123456';
-     const currentUrl = await DB.getSetting('apiUrl');
-     if(!currentUrl) return;
-
-     try {
-         // Determine payload key based on action
-         let body: any = { action, secret };
-         if (action === 'push_license') body.license = payload;
-         if (action === 'delete_request') body.id = payload.id;
-         if (action === 'update_request') body.request = payload;
-
-         await fetch(currentUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-         });
-     } catch (e) {
-         console.error("Push failed", e);
-         // Optionally queue for later, but for now just log
-     }
-  };
-
-  const handleServerSync = async (silent = false) => {
-    const secret = await DB.getSetting('adminSecret') || '123456';
-    const currentUrl = await DB.getSetting('apiUrl');
-
-    if (!currentUrl) {
-        if (!silent) alert("Bitte API URL in den Einstellungen konfigurieren.");
-        return;
-    }
-
-    if (!silent) setIsSyncing(true);
-    setSyncError(false);
-
-    try {
-        const response = await fetch(currentUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                action: 'sync_admin', 
-                secret: secret 
-            })
-        });
-
-        const contentType = response.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-            if (!silent) {
-                 console.warn("Sync Endpoint returned non-JSON response.", await response.text());
-                 alert("Fehler: Der Server hat kein JSON zurückgegeben. Bitte prüfen Sie die API URL.");
-            }
-            throw new Error(`Server returned ${response.status} (Not JSON)`);
-        }
-
-        const data = await response.json();
-
-        if (data.error) {
-            console.error("Sync Error:", data.error);
-            if (!silent) alert("Sync Fehler: " + data.error);
-            setSyncError(true);
-        } else if (data.licenses && data.requests) {
-            await DB.mergeExternalData(data.licenses, data.requests);
-            await refreshData();
-            if (!silent) alert("Synchronisation erfolgreich!");
-        }
-    } catch (e: any) {
-        console.error("Sync Network Error:", e.message);
-        if (!silent) alert(`Verbindungsfehler beim Sync: ${e.message}`);
-        setSyncError(true);
-    } finally {
-        if (!silent) setIsSyncing(false);
-    }
   };
 
   // Helper to clean domain (remove protocol, port, path)
@@ -287,79 +212,158 @@ export default function App() {
     return newLog;
   }, []);
 
-  // ------------------------------------------------------------
-  // INTERCEPTOR: Monkey Patch window.fetch to simulate backend
-  // ------------------------------------------------------------
-  useEffect(() => {
-    const originalFetch = window.fetch;
-    
-    // Override fetch
-    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  // Safe wrapper for API calls to handle Simulation/Mocking without patching window.fetch
+  const performApiCall = async (url: string, options: RequestInit = {}) => {
+    // Check if we should simulate (matches configured API URL)
+    if (url === apiUrl) {
+        console.log(`[API SIMULATOR] Intercepting call to ${url}`);
         
-        let isSyncRequest = false;
         let parsedBody: any = {};
-        if (init?.body) {
+        if (options.body) {
             try {
-                parsedBody = JSON.parse(init.body as string);
-                if (parsedBody.action === 'sync_admin') isSyncRequest = true;
+                parsedBody = JSON.parse(options.body as string);
             } catch(e) {}
         }
 
-        // Intercept if it matches configured API URL
-        if (urlStr === apiUrl && init?.method === 'POST') {
-            console.log(`[API SIMULATOR] Intercepting fetch to ${urlStr}`);
-            
-            try {
-                // HANDLE SYNC REQUEST LOCALLY
-                if (isSyncRequest) {
-                     const storedSecret = await DB.getSetting('adminSecret') || '123456';
-                     if (parsedBody.secret !== storedSecret) {
-                          return new Response(JSON.stringify({ error: 'Invalid Secret' }), { status: 403, headers: {'Content-Type': 'application/json'} });
-                     }
-                     const lics = await DB.getLicenses();
-                     const reqs = await DB.getRequests();
-                     
-                     return new Response(JSON.stringify({
-                         status: 'ok',
-                         licenses: lics,
-                         requests: reqs
-                     }), { status: 200, headers: {'Content-Type': 'application/json'} });
-                }
-
-                // HANDLE STANDARD LICENSE REQUEST
-                let body: any = {};
-                if (init.body) {
-                    body = JSON.parse(init.body as string);
-                }
-
-                const headers = init.headers as Record<string, string>;
-                const origin = headers?.['Origin'] || headers?.['origin'] || window.location.hostname;
-                
-                const result = await handleApiRequest(origin, body.key);
-
-                return new Response(result.responseBody, {
-                    status: result.responseStatus,
-                    statusText: result.responseStatus === 200 ? 'OK' : 'Error',
-                    headers: new Headers({
-                        'Content-Type': 'application/json',
-                        'X-Simulated-By': 'FFw-License-Manager-App'
-                    })
-                });
-
-            } catch (e) {
-                console.error("Simulation Error", e);
-                return new Response(JSON.stringify({ error: 'Simulation Failed' }), { status: 500 });
-            }
+        // 1. SYNC REQUEST
+        if (parsedBody.action === 'sync_admin') {
+             const storedSecret = await DB.getSetting('adminSecret') || '123456';
+             if (parsedBody.secret !== storedSecret) {
+                  return {
+                      ok: false,
+                      status: 403,
+                      headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
+                      json: async () => ({ error: 'Invalid Secret' }),
+                      text: async () => JSON.stringify({ error: 'Invalid Secret' })
+                  };
+             }
+             const lics = await DB.getLicenses();
+             const reqs = await DB.getRequests();
+             
+             return {
+                 ok: true,
+                 status: 200,
+                 headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
+                 json: async () => ({
+                     status: 'ok',
+                     licenses: lics,
+                     requests: reqs
+                 }),
+                 text: async () => JSON.stringify({ status: 'ok', licenses: lics, requests: reqs })
+             };
+        }
+        
+        // 2. OTHER ACTIONS (PUSH/DELETE/UPDATE)
+        if (['push_license', 'delete_request', 'update_request'].includes(parsedBody.action)) {
+             // For simulation, we verify secret but don't need to do anything since local DB is already updated
+             const storedSecret = await DB.getSetting('adminSecret') || '123456';
+             if (parsedBody.secret !== storedSecret) {
+                  return {
+                      ok: false,
+                      status: 403,
+                      headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
+                      json: async () => ({ error: 'Invalid Secret' }),
+                      text: async () => JSON.stringify({ error: 'Invalid Secret' })
+                  };
+             }
+             return {
+                 ok: true,
+                 status: 200,
+                 headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
+                 json: async () => ({ status: 'ok' }),
+                 text: async () => JSON.stringify({ status: 'ok' })
+             };
         }
 
-        return originalFetch(input, init);
-    };
+        // 3. STANDARD LICENSE REQUEST (VERIFY) fallback
+        // Usually handled by handleApiRequest directly, but just in case
+        const result = await handleApiRequest('internal-simulator', parsedBody.key);
+        return {
+            ok: result.responseStatus === 200 || result.responseStatus === 201,
+            status: result.responseStatus,
+            headers: { get: (h: string) => h === 'content-type' ? 'application/json' : null },
+            json: async () => JSON.parse(result.responseBody),
+            text: async () => result.responseBody
+        };
+    }
 
-    return () => {
-        window.fetch = originalFetch;
-    };
-  }, [apiUrl, handleApiRequest]);
+    // Fallback to real fetch for non-intercepted URLs
+    return fetch(url, options);
+  };
+
+  const pushToServer = async (action: string, payload: any) => {
+     const secret = await DB.getSetting('adminSecret') || '123456';
+     const currentUrl = await DB.getSetting('apiUrl');
+     if(!currentUrl) return;
+
+     try {
+         // Determine payload key based on action
+         let body: any = { action, secret };
+         if (action === 'push_license') body.license = payload;
+         if (action === 'delete_request') body.id = payload.id;
+         if (action === 'update_request') body.request = payload;
+
+         await performApiCall(currentUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+         });
+     } catch (e) {
+         console.error("Push failed", e);
+     }
+  };
+
+  const handleServerSync = async (silent = false) => {
+    const secret = await DB.getSetting('adminSecret') || '123456';
+    const currentUrl = await DB.getSetting('apiUrl');
+
+    if (!currentUrl) {
+        if (!silent) alert("Bitte API URL in den Einstellungen konfigurieren.");
+        return;
+    }
+
+    if (!silent) setIsSyncing(true);
+    setSyncError(false);
+
+    try {
+        const response = await performApiCall(currentUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                action: 'sync_admin', 
+                secret: secret 
+            })
+        });
+
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            if (!silent) {
+                 const text = await response.text();
+                 console.warn("Sync Endpoint returned non-JSON response.", text);
+                 alert("Fehler: Der Server hat kein JSON zurückgegeben. Bitte prüfen Sie die API URL.");
+            }
+            throw new Error(`Server returned ${response.status} (Not JSON)`);
+        }
+
+        const data = await response.json();
+
+        if (data.error) {
+            console.error("Sync Error:", data.error);
+            if (!silent) alert("Sync Fehler: " + data.error);
+            setSyncError(true);
+        } else if (data.licenses && data.requests) {
+            await DB.mergeExternalData(data.licenses, data.requests);
+            await refreshData();
+            if (!silent) alert("Synchronisation erfolgreich!");
+        }
+    } catch (e: any) {
+        console.error("Sync Network Error:", e.message);
+        if (!silent) alert(`Verbindungsfehler beim Sync: ${e.message}`);
+        setSyncError(true);
+    } finally {
+        if (!silent) setIsSyncing(false);
+    }
+  };
 
 
   const handleApprove = async (
@@ -461,12 +465,16 @@ export default function App() {
   };
 
   const handleRevoke = async (id: string) => {
-    if (confirm('Sind Sie sicher, dass Sie diese Lizenz widerrufen möchten?')) {
+    const licToRevoke = licenses.find(l => l.id === id);
+    const confirmMessage = licToRevoke 
+      ? `Sind Sie sicher, dass Sie die Lizenz für "${licToRevoke.organization}" widerrufen möchten?`
+      : 'Sind Sie sicher, dass Sie diese Lizenz widerrufen möchten?';
+
+    if (confirm(confirmMessage)) {
       await DB.revokeLicense(id);
       
-      const lic = licenses.find(l => l.id === id);
-      if (lic) {
-          await pushToServer('push_license', { ...lic, status: 'suspended' });
+      if (licToRevoke) {
+          await pushToServer('push_license', { ...licToRevoke, status: 'suspended' });
       }
 
       await refreshData();
