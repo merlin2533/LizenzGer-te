@@ -15,7 +15,13 @@
 
 // KONFIGURATION
 $adminSecret = "123456"; // ÄNDERN SIE DIESES PASSWORT IN DER APP!
-$dbFile = 'ffw_licenses.sqlite';
+$dbFile = __DIR__ . '/ffw_licenses.sqlite';
+
+// DEBUGGING
+ini_set('display_errors', 0); // Disable HTML errors to not break JSON
+error_reporting(E_ALL);
+ini_set('log_errors', 1);
+ini_set('error_log', __DIR__ . '/php_error.log');
 
 // --- HEADERS ---
 header('Content-Type: application/json');
@@ -130,7 +136,7 @@ function getDb($file) {
         if ($init) { initDb($db); }
         checkMigrations($db);
         return $db;
-    } catch (Throwable $e) {
+    } catch (Exception $e) {
         http_response_code(500);
         echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
         exit;
@@ -246,13 +252,35 @@ function logAccess($db, $sourceUrl, $key, $status, $body) {
 }
 
 // --- MAIN LOGIC ---
-$input = json_decode(file_get_contents('php://input'), true);
+$rawInput = file_get_contents('php://input');
+$input = json_decode($rawInput, true);
+
+// Health Check / Debug
+if (isset($_GET['health'])) {
+    header('Content-Type: application/json');
+    
+    $dirWritable = is_writable(__DIR__);
+    $dbExists = file_exists($dbFile);
+    $dbWritable = $dbExists ? is_writable($dbFile) : $dirWritable;
+    
+    echo json_encode([
+        'status' => 'ok', 
+        'message' => 'Server is reachable', 
+        'sqlite3' => class_exists('SQLite3'), 
+        'pdo_sqlite' => class_exists('PDO') && in_array('sqlite', PDO::getAvailableDrivers()),
+        'php_version' => phpversion(),
+        'db_path' => $dbFile,
+        'db_exists' => $dbExists,
+        'dir_writable' => $dirWritable,
+        'db_writable' => $dbWritable
+    ]);
+    exit;
+}
+
 $db = getDb($dbFile);
 
-// REMOVED STRAY BRACE
-
 // ADMIN ACTIONS (Authentication required)
-if (isset($input['action'])) {
+if (is_array($input) && isset($input['action'])) {
     if (!isset($input['secret']) || $input['secret'] !== $adminSecret) {
         http_response_code(403);
         echo json_encode(['error' => 'Invalid Secret']);

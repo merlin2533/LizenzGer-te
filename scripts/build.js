@@ -28,6 +28,17 @@ if (fs.existsSync(phpSource)) {
     console.error('   ❌ index_corrected.php not found!');
 }
 
+// Copy Diagnostic Files
+const diagFiles = ['test_hello.php', 'test_db.php', 'test_minimal.php'];
+diagFiles.forEach(file => {
+    const src = path.join(rootDir, file);
+    const dest = path.join(distDir, file);
+    if (fs.existsSync(src)) {
+        fs.copyFileSync(src, dest);
+        console.log(`   ✅ ${file} copied.`);
+    }
+});
+
 // 3. Generate SQLite
 const dbPath = path.join(distDir, 'ffw_licenses.sqlite');
 
