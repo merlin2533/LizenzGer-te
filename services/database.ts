@@ -67,27 +67,7 @@ export const saveSetting = async (key: string, value: string): Promise<void> => 
 };
 
 // ==================== MODULES ====================
-
-export const getModules = async (): Promise<ModuleDefinition[]> => {
-  const result = await apiCall('get_modules');
-  return result.data || [];
-};
-
-export const addModule = async (module: ModuleDefinition): Promise<void> => {
-  // Modules are defined in PHP config, not editable from frontend currently
-  console.warn('[Database] addModule not implemented - modules are configured in PHP');
-};
-
-export const deleteModule = async (id: string): Promise<void> => {
-  // Modules are defined in PHP config, not editable from frontend currently
-  console.warn('[Database] deleteModule not implemented - modules are configured in PHP');
-};
-
-// ==================== LICENSES ====================
-
-export const getLicenses = async (): Promise<License[]> => {
-  const result = await apiCall('get_licenses');
-  return result.data || [];
+return result.data || [];
 };
 
 export const createLicense = async (license: License): Promise<void> => {

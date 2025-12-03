@@ -143,6 +143,8 @@ function getDb($file) {
     }
 }
 
+// ... (previous code)
+
 function initDb($db) {
     $db->exec("CREATE TABLE IF NOT EXISTS licenses (
       id TEXT PRIMARY KEY,
@@ -181,9 +183,18 @@ function initDb($db) {
       responseStatus INTEGER,
       responseBody TEXT
     )");
+
+    $db->exec("CREATE TABLE IF NOT EXISTS modules (
+      id TEXT PRIMARY KEY,
+      label TEXT,
+      description TEXT,
+      iconName TEXT
+    )");
 }
 
 function checkMigrations($db) {
+    global $moduleConfig;
+
     $cols = $db->query("PRAGMA table_info(requests)");
     $hasCustomMessage = false;
     while ($row = $cols->fetchArray()) {
@@ -207,6 +218,31 @@ function checkMigrations($db) {
           responseBody TEXT
         )");
     }
+
+    // Check for modules table and populate if empty
+    $tables = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='modules'");
+    if (!$tables->fetchArray()) {
+        $db->exec("CREATE TABLE IF NOT EXISTS modules (
+          id TEXT PRIMARY KEY,
+          label TEXT,
+          description TEXT,
+          iconName TEXT
+        )");
+    }
+
+    $res = $db->query("SELECT count(*) as count FROM modules");
+    $row = $res->fetchArray(SQLITE3_ASSOC);
+    if ($row['count'] == 0) {
+        // Populate defaults
+        $stmt = $db->prepare("INSERT INTO modules (id, label, description, iconName) VALUES (:id, :label, :desc, :icon)");
+        foreach ($moduleConfig as $id => $def) {
+            $stmt->bindValue(':id', $id);
+            $stmt->bindValue(':label', $def['title']);
+            $stmt->bindValue(':desc', $def['desc']);
+            $stmt->bindValue(':icon', $def['icon']);
+            $stmt->execute();
+        }
+    }
 }
 
 function normalizeDomain($url) {
@@ -217,6 +253,25 @@ function normalizeDomain($url) {
     $url = $parts[0];
     $parts = explode(':', $url); 
     return $parts[0];
+}
+
+function getModuleConfigFromDb($db) {
+    $config = [];
+    try {
+        $res = $db->query("SELECT * FROM modules");
+        while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+            $config[$row['id']] = [
+                'title' => $row['label'],
+                'desc' => $row['description'],
+                'icon' => $row['iconName']
+            ];
+        }
+    } catch (Exception $e) {
+        // Fallback if table doesn't exist yet or error
+        global $moduleConfig;
+        return $moduleConfig;
+    }
+    return $config;
 }
 
 function buildRichModules($featuresJson, $config) {
@@ -321,15 +376,10 @@ if (is_array($input) && isset($input['action'])) {
     }
     
     if ($input['action'] === 'get_modules') {
-        // Return module definitions from config
         $modules = [];
-        foreach ($moduleConfig as $id => $def) {
-            $modules[] = [
-                'id' => $id,
-                'label' => $def['title'],
-                'description' => $def['desc'],
-                'iconName' => $def['icon']
-            ];
+        $res = $db->query("SELECT * FROM modules");
+        while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+            $modules[] = $row;
         }
         echo json_encode(['status' => 'ok', 'data' => $modules]);
         exit;
@@ -352,6 +402,28 @@ if (is_array($input) && isset($input['action'])) {
         $stmt->bindValue(':created', $lic['createdAt']);
         $stmt->bindValue(':phone', $lic['phoneNumber'] ?? null);
         $stmt->bindValue(':note', $lic['note'] ?? null);
+        $stmt->execute();
+        echo json_encode(['status' => 'ok']);
+        exit;
+    }
+
+    if ($input['action'] === 'add_module') {
+        $mod = $input['module'];
+        // Check if exists
+        $stmt = $db->prepare("SELECT id FROM modules WHERE id = :id");
+        $stmt->bindValue(':id', $mod['id']);
+        $res = $stmt->execute();
+        if ($res->fetchArray()) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Module ID already exists']);
+            exit;
+        }
+
+        $stmt = $db->prepare("INSERT INTO modules (id, label, description, iconName) VALUES (:id, :label, :desc, :icon)");
+        $stmt->bindValue(':id', $mod['id']);
+        $stmt->bindValue(':label', $mod['label']);
+        $stmt->bindValue(':desc', $mod['description']);
+        $stmt->bindValue(':icon', $mod['iconName']);
         $stmt->execute();
         echo json_encode(['status' => 'ok']);
         exit;
@@ -432,6 +504,15 @@ if (is_array($input) && isset($input['action'])) {
         echo json_encode(['status' => 'ok']);
         exit;
     }
+
+    if ($input['action'] === 'delete_module') {
+        $id = $input['id'];
+        $stmt = $db->prepare("DELETE FROM modules WHERE id = :id");
+        $stmt->bindValue(':id', $id);
+        $stmt->execute();
+        echo json_encode(['status' => 'ok']);
+        exit;
+    }
     
     // === SETTINGS ===
     
@@ -485,6 +566,9 @@ $origin = $_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '';
 $domain = normalizeDomain($origin);
 $providedKey = $input['key'] ?? null;
 
+// Load dynamic module config
+$currentModuleConfig = getModuleConfigFromDb($db);
+
 // RESPONSE DATA
 $responseStatus = 200;
 $responseBody = [];
@@ -509,7 +593,7 @@ if (!$providedKey) {
             'key' => $license['key'],
             'validUntil' => $license['validUntil'],
             'daysRemaining' => $daysRemaining,
-            'modules' => buildRichModules($license['features'], $moduleConfig),
+            'modules' => buildRichModules($license['features'], $currentModuleConfig),
             'features' => $isExpired ? new stdClass() : json_decode($license['features'], true)
         ];
     } else {
@@ -605,7 +689,7 @@ if (!$providedKey) {
             'status' => $isExpired ? 'expired' : 'valid',
             'validUntil' => $license['validUntil'],
             'daysRemaining' => $daysRemaining,
-            'modules' => buildRichModules($license['features'], $moduleConfig),
+            'modules' => buildRichModules($license['features'], $currentModuleConfig),
             'features' => $isExpired ? new stdClass() : json_decode($license['features'], true)
         ];
     }

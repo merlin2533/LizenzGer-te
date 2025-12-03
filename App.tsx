@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { License, LicenseRequest, FeatureSet, DEFAULT_FEATURES, ApiLogEntry, ModuleDefinition } from './types';
 import { LicenseCard } from './components/LicenseCard';
@@ -325,60 +324,6 @@ export default function App() {
     }
   };
 
-  const handleServerSync = async (silent = false) => {
-    const secret = await DB.getSetting('adminSecret') || '123456';
-    const currentUrl = await DB.getSetting('apiUrl');
-
-    if (!currentUrl) {
-      if (!silent) alert("Bitte API URL in den Einstellungen konfigurieren.");
-      return;
-    }
-
-    if (!silent) setIsSyncing(true);
-    setSyncError(false);
-
-    try {
-      const response = await performApiCall(currentUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'sync_admin',
-          secret: secret
-        })
-      });
-
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        if (!silent) {
-          const text = await response.text();
-          console.warn("Sync Endpoint returned non-JSON response.", text);
-          alert("Fehler: Der Server hat kein JSON zurückgegeben. Bitte prüfen Sie die API URL.");
-        }
-        throw new Error(`Server returned ${response.status} (Not JSON)`);
-      }
-
-      const data = await response.json();
-
-      if (data.error) {
-        console.error("Sync Error:", data.error);
-        if (!silent) alert("Sync Fehler: " + data.error);
-        setSyncError(true);
-      } else if (data.licenses || data.requests) {
-        // FIX: Include logs in sync
-        await DB.mergeExternalData(data.licenses || [], data.requests || [], data.logs || []);
-        await refreshData();
-        if (!silent) alert(`Synchronisation erfolgreich! ${data.requests?.length || 0} Anfragen, ${data.licenses?.length || 0} Lizenzen geladen.`);
-      }
-    } catch (e: any) {
-      console.error("Sync Network Error:", e.message);
-      if (!silent) alert(`Verbindungsfehler beim Sync: ${e.message}`);
-      setSyncError(true);
-    } finally {
-      if (!silent) setIsSyncing(false);
-    }
-  };
-
-
   const handleApprove = async (
     request: LicenseRequest,
     updatedDetails: { organization: string, contactPerson: string, email: string, phoneNumber: string },
@@ -392,7 +337,7 @@ export default function App() {
       contactPerson: updatedDetails.contactPerson,
       email: updatedDetails.email,
       phoneNumber: updatedDetails.phoneNumber,
-      domain: normalizeDomain(request.requestedDomain), // Normalize domain on approval too
+      domain: normalizeDomain(request.requestedDomain),
       key: `FFW-${Math.random().toString(36).substr(2, 4).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
       validUntil,
       status: 'active',
@@ -404,7 +349,6 @@ export default function App() {
     await DB.createLicense(newLicense);
     await DB.deleteRequest(request.id);
 
-    // PUSH to Server
     await pushToServer('push_license', newLicense);
     await pushToServer('delete_request', { id: request.id });
 
@@ -416,7 +360,6 @@ export default function App() {
   const handleUpdateRequest = async (request: LicenseRequest, details: Partial<LicenseRequest>) => {
     const updatedReq = { ...request, ...details };
     await DB.updateRequest(updatedReq);
-    // PUSH to Server
     await pushToServer('update_request', updatedReq);
 
     setSelectedRequest(null);
@@ -445,7 +388,6 @@ export default function App() {
     };
 
     await DB.createLicense(newLicense);
-    // PUSH to Server
     await pushToServer('push_license', newLicense);
 
     setShowCreateModal(false);
@@ -455,52 +397,35 @@ export default function App() {
 
   const handleUpdateFeatures = async (id: string, newFeatures: FeatureSet) => {
     await DB.updateLicenseFeatures(id, newFeatures);
-
-    // Sync update
     const lic = await DB.findLicenseByKey(id) || licenses.find(l => l.id === id);
     if (lic) {
       await pushToServer('push_license', { ...lic, features: newFeatures });
     }
-
     await refreshData();
   };
 
   const handleUpdateDetails = async (id: string, details: Partial<License>) => {
     await DB.updateLicenseDetails(id, details);
-
-    // Sync update
     const lic = await DB.findLicenseByKey(id) || licenses.find(l => l.id === id);
     if (lic) {
       await pushToServer('push_license', { ...lic, ...details });
     }
-
     await refreshData();
   };
 
   const handleRevoke = async (id: string) => {
     const licToRevoke = licenses.find(l => l.id === id);
-    const confirmMessage = licToRevoke
-      ? `Sind Sie sicher, dass Sie die Lizenz für "${licToRevoke.organization}" widerrufen möchten?`
-      : 'Sind Sie sicher, dass Sie diese Lizenz widerrufen möchten?';
-
-    if (confirm(confirmMessage)) {
+    if (confirm(licToRevoke ? `Revoke license for "${licToRevoke.organization}"?` : 'Revoke license?')) {
       await DB.revokeLicense(id);
-
       if (licToRevoke) {
         await pushToServer('push_license', { ...licToRevoke, status: 'suspended' });
       }
-
       await refreshData();
     }
   };
 
   const handleDeleteLicense = async (id: string) => {
-    const licToDelete = licenses.find(l => l.id === id);
-    const confirmMessage = licToDelete
-      ? `ACHTUNG: Möchten Sie die Lizenz für "${licToDelete.organization}" ENDGÜLTIG LÖSCHEN?\n\nDiese Aktion kann nicht rückgängig gemacht werden!`
-      : 'Möchten Sie diese Lizenz wirklich unwiderruflich löschen?';
-
-    if (confirm(confirmMessage)) {
+    if (confirm('Delete license permanently?')) {
       await DB.deleteLicense(id);
       await pushToServer('delete_license', { id });
       await refreshData();
@@ -511,19 +436,14 @@ export default function App() {
     const matchesSearch = l.organization.toLowerCase().includes(searchTerm.toLowerCase()) ||
       l.key.toLowerCase().includes(searchTerm.toLowerCase()) ||
       l.domain.toLowerCase().includes(searchTerm.toLowerCase());
-
     if (!matchesSearch) return false;
-
-    // Status Filter Logic
     const now = new Date();
     const validUntil = new Date(l.validUntil);
     const isExpired = validUntil < now;
-
     if (filterStatus === 'all') return true;
     if (filterStatus === 'suspended') return l.status === 'suspended';
     if (filterStatus === 'expired') return isExpired;
     if (filterStatus === 'active') return l.status === 'active' && !isExpired;
-
     return true;
   });
 
@@ -538,7 +458,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
-      {/* Sidebar */}
       <aside className="w-full md:w-64 bg-slate-900 text-white flex-shrink-0 flex flex-col">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
           <div className="bg-red-600 p-2 rounded-lg">
@@ -551,45 +470,21 @@ export default function App() {
         </div>
 
         <nav className="flex-1 p-4 space-y-2">
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-          >
-            <LayoutDashboard size={18} />
-            Übersicht
+          <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+            <LayoutDashboard size={18} /> Übersicht
           </button>
-          <button
-            onClick={() => setActiveTab('requests')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'requests' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-          >
+          <button onClick={() => setActiveTab('requests')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'requests' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
             <div className="relative">
               <Inbox size={18} />
-              {requests.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-slate-900"></span>
-              )}
+              {requests.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-slate-900"></span>}
             </div>
             Anfragen
             {requests.length > 0 && <span className="ml-auto bg-slate-800 text-slate-300 py-0.5 px-2 rounded-full text-xs">{requests.length}</span>}
           </button>
-
           <div className="pt-4 mt-4 border-t border-slate-800">
             <span className="px-4 text-xs font-bold text-slate-500 uppercase">Verwaltung</span>
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`w-full flex items-center gap-3 px-4 py-3 mt-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-            >
-              <Settings size={18} />
-              Einstellungen
-            </button>
-
-            <button
-              onClick={() => handleServerSync()}
-              disabled={isSyncing}
-              className={`w-full flex items-center gap-3 px-4 py-3 mt-2 rounded-lg text-sm font-medium transition-colors text-slate-400 hover:bg-slate-800 hover:text-white group relative`}
-            >
-              <RefreshCw size={18} className={`group-hover:text-blue-400 ${isSyncing ? 'animate-spin text-blue-500' : ''}`} />
-              {isSyncing ? 'Synchronisiere...' : 'Server Sync'}
-              {syncError && <div className="absolute right-4 w-2 h-2 bg-red-500 rounded-full"></div>}
+            <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 mt-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Settings size={18} /> Einstellungen
             </button>
           </div>
         </nav>
@@ -728,66 +623,60 @@ export default function App() {
                   <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
                     <Inbox className="w-8 h-8 text-gray-400" />
                   </div>
-                  <h3 className="text-lg font-medium text-gray-900">Alles erledigt!</h3>
-                  <p className="text-gray-500 mb-4">Momentan liegen keine offenen Anfragen vor.</p>
-
-                  <button
-                    onClick={() => handleServerSync()}
-                    className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-2 rounded transition-colors"
-                  >
-                    <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} />
-                    {isSyncing ? 'Prüfe Server...' : 'Jetzt auf neue Anfragen prüfen'}
-                  </button>
+                  <h3 className="text-lg font-medium text-gray-900">Keine offenen Anfragen</h3>
+                  <p className="text-gray-500 mt-1">Es liegen aktuell keine Registrierungsanfragen vor.</p>
                 </div>
               ) : (
-                <div className="divide-y divide-gray-100">
-                  {requests.map((req) => (
-                    <div key={req.id} className="p-6 hover:bg-gray-50 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-1">
-                          <h3 className="text-lg font-bold text-gray-900">{req.organization}</h3>
-                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">Neu</span>
-                          {req.id.includes('auto') && (
-                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-mono border border-gray-200">
-                              Auto-Reg
-                            </span>
+                <div className="divide-y divide-gray-200">
+                  {requests.map(req => (
+                    <div key={req.id} className="p-6 hover:bg-gray-50 transition-colors">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-3 mb-1">
+                            <h3 className="text-lg font-bold text-gray-900">{req.organization}</h3>
+                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">Neu</span>
+                            {req.id.includes('auto') && (
+                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-mono border border-gray-200">
+                                Auto-Reg
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600 mb-2">{req.contactPerson} &lt;{req.email}&gt;</p>
+                          <div className="flex items-center gap-2">
+                            <div className="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-2 py-1 rounded border border-gray-200">
+                              Domain: {normalizeDomain(req.requestedDomain)}
+                            </div>
+                            <div className="text-[10px] text-gray-400 font-mono">
+                              ID: {req.id}
+                            </div>
+                          </div>
+                          {req.note && (
+                            <div className="mt-3 text-sm text-gray-600 italic border-l-2 border-blue-200 pl-3">
+                              "{req.note}"
+                            </div>
                           )}
                         </div>
-                        <p className="text-sm text-gray-600 mb-2">{req.contactPerson} &lt;{req.email}&gt;</p>
-                        <div className="flex items-center gap-2">
-                          <div className="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-2 py-1 rounded border border-gray-200">
-                            Domain: {normalizeDomain(req.requestedDomain)}
-                          </div>
-                          <div className="text-[10px] text-gray-400 font-mono">
-                            ID: {req.id}
-                          </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={async () => {
+                              if (confirm("Anfrage wirklich ablehnen?")) {
+                                await DB.deleteRequest(req.id);
+                                await pushToServer('delete_request', { id: req.id });
+                                refreshData();
+                              }
+                            }}
+                            className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded-lg"
+                          >
+                            Ablehnen
+                          </button>
+                          <button
+                            onClick={() => setSelectedRequest(req)}
+                            className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm shadow-red-200 flex items-center gap-2"
+                          >
+                            <KeyRound size={16} />
+                            Freigeben
+                          </button>
                         </div>
-                        {req.note && (
-                          <div className="mt-3 text-sm text-gray-600 italic border-l-2 border-blue-200 pl-3">
-                            "{req.note}"
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={async () => {
-                            if (confirm("Anfrage wirklich ablehnen?")) {
-                              await DB.deleteRequest(req.id);
-                              await pushToServer('delete_request', { id: req.id });
-                              refreshData();
-                            }
-                          }}
-                          className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded-lg"
-                        >
-                          Ablehnen
-                        </button>
-                        <button
-                          onClick={() => setSelectedRequest(req)}
-                          className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm shadow-red-200 flex items-center gap-2"
-                        >
-                          <KeyRound size={16} />
-                          Freigeben
-                        </button>
                       </div>
                     </div>
                   ))}
