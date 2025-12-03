@@ -7,7 +7,7 @@ let adminSecret: string | null = null;
 
 // Initialize configuration from localStorage
 const initConfig = () => {
-  if (!apiUrl) apiUrl = localStorage.getItem('apiUrl') || '';
+  if (!apiUrl) apiUrl = localStorage.getItem('apiUrl') || 'https://lizenz.straub-it.de/index.php';
   if (!adminSecret) adminSecret = localStorage.getItem('adminSecret') || '123456';
 };
 

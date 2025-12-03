@@ -24,7 +24,7 @@ export default function App() {
 
   const [apiLogs, setApiLogs] = useState<ApiLogEntry[]>([]);
   const [dbReady, setDbReady] = useState(false);
-  const [apiUrl, setApiUrl] = useState("https://lizenz.straub-it.de/v1/license/verify");
+  const [apiUrl, setApiUrl] = useState("https://lizenz.straub-it.de/index.php");
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
@@ -203,7 +203,7 @@ export default function App() {
       }
     }
 
-    const currentApiUrl = await DB.getSetting('apiUrl') || "/api/v1/license/verify";
+    const currentApiUrl = await DB.getSetting('apiUrl') || "https://lizenz.straub-it.de/index.php";
     const endpointPath = new URL(currentApiUrl).pathname;
 
     const newLog: ApiLogEntry = {
